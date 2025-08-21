@@ -1,0 +1,19 @@
+#% RAML 1.0
+title: GestaoDeProcessos
+version: v1
+baseUri: localhost
+mediaType: application/json
+
+/itens
+  get:
+    description: Pegar todos os itens
+    responses:
+      200:
+        body:
+          application/json:
+            example:
+              {
+                {"id": 1, "tipo":"Maquina", "patrimonio":123321, "localatual":"unidade1"},
+                {"id": 2, "tipo":"Ferramenta", "patrimonio":122231, "localatual":"unidade3"}
+              }
+
