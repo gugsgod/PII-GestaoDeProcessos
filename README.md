@@ -1,4 +1,4 @@
-# Sistema de Gestao de Projetos
+# Sistema de Gestao de Processos
 
 
 ## 🎯 Objetivo
