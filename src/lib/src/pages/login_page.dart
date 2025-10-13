@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'animated_network_background.dart';
 
 class LoginPage extends StatelessWidget {
   const LoginPage({super.key});
@@ -8,19 +9,9 @@ class LoginPage extends StatelessWidget {
     return Scaffold(
       body: Stack(
         children: [
-          // background
-          Container(
-            decoration: const BoxDecoration(
-              image: DecorationImage(
-                image: AssetImage('assets/images/background_login.jpg'),
-                fit: BoxFit.cover,
-              ),
-            ),
-          ),
-
           // efeito azul do fundo
-          Container(color: Colors.blue.shade900.withOpacity(0.45)),
-
+          Container(color: const Color.fromARGB(255, 0, 14, 92)),
+          const AnimatedNetworkBackground(),
           // caixa de login
           Center(
             child: Container(
@@ -28,11 +19,11 @@ class LoginPage extends StatelessWidget {
               height: 500,
               padding: const EdgeInsets.all(32),
               decoration: BoxDecoration(
-                color: Colors.white.withOpacity(0.85),
+                color: Colors.white.withAlpha(217),
                 borderRadius: BorderRadius.circular(16),
                 boxShadow: [
                   BoxShadow(
-                    color: Colors.black.withOpacity(0.2),
+                    color: const Color.fromARGB(255, 1, 1, 2).withAlpha(102),
                     blurRadius: 10,
                     offset: const Offset(0, 5),
                   ),
@@ -63,11 +54,18 @@ class LoginPage extends StatelessWidget {
                   ),
                   const SizedBox(height: 6),
                   TextField(
+                    obscureText: false,
+                    cursorColor: const Color(0xFF002776),
                     decoration: InputDecoration(
                       hintText: 'Digite seu email...',
-                      border: OutlineInputBorder(
+                      enabledBorder: OutlineInputBorder(
                         borderRadius: BorderRadius.circular(12.0),
+                        borderSide: const BorderSide(color: Colors.grey),
                       ),
+                        focusedBorder: OutlineInputBorder(
+                          borderRadius: BorderRadius.circular(12.0),
+                          borderSide: const BorderSide(color: Color(0xFF002776), width: 2.0), // Cor azul e mais grossa
+                        ),
                       contentPadding: EdgeInsets.symmetric(
                         horizontal: 12,
                         vertical: 10,
@@ -90,11 +88,17 @@ class LoginPage extends StatelessWidget {
                   const SizedBox(height: 6),
                   TextField(
                     obscureText: true,
+                    cursorColor: const Color(0xFF002776),
                     decoration: InputDecoration(
                       hintText: 'Digite sua senha...',
-                      border: OutlineInputBorder(
+                      enabledBorder: OutlineInputBorder(
                         borderRadius: BorderRadius.circular(12.0),
+                        borderSide: const BorderSide(color: Colors.grey),
                       ),
+                        focusedBorder: OutlineInputBorder(
+                          borderRadius: BorderRadius.circular(12.0),
+                          borderSide: const BorderSide(color: Color(0xFF002776), width: 2.0), // Cor azul e mais grossa
+                        ),
                       contentPadding: EdgeInsets.symmetric(
                         horizontal: 12,
                         vertical: 10,
@@ -108,7 +112,11 @@ class LoginPage extends StatelessWidget {
                   ElevatedButton(
                     style: ElevatedButton.styleFrom(
                       backgroundColor: const Color(0xFF002776),
-                      padding: const EdgeInsets.symmetric(vertical: 17, horizontal: 47),
+                      padding: const EdgeInsets.symmetric(
+                        vertical: 17,
+                        horizontal: 47,
+                      ),
+                      overlayColor: Colors.black.withOpacity(0.3),
                     ),
                     onPressed: () {
                       Navigator.pushReplacementNamed(context, '/admin');
