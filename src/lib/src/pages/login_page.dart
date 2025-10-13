@@ -1,8 +1,16 @@
 import 'package:flutter/material.dart';
 import 'animated_network_background.dart';
 
-class LoginPage extends StatelessWidget {
+class LoginPage extends StatefulWidget {
   const LoginPage({super.key});
+
+  @override
+  State<LoginPage> createState() => _LoginPageState();
+}
+
+class _LoginPageState extends State<LoginPage> {
+  // PASSO 2: Criada uma variável para controlar a visibilidade da senha
+  bool _isPasswordVisible = false;
 
   @override
   Widget build(BuildContext context) {
@@ -62,10 +70,13 @@ class LoginPage extends StatelessWidget {
                         borderRadius: BorderRadius.circular(12.0),
                         borderSide: const BorderSide(color: Colors.grey),
                       ),
-                        focusedBorder: OutlineInputBorder(
-                          borderRadius: BorderRadius.circular(12.0),
-                          borderSide: const BorderSide(color: Color(0xFF002776), width: 2.0), // Cor azul e mais grossa
-                        ),
+                      focusedBorder: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(12.0),
+                        borderSide: const BorderSide(
+                          color: Color(0xFF002776),
+                          width: 2.0,
+                        ), // Cor azul e mais grossa
+                      ),
                       contentPadding: EdgeInsets.symmetric(
                         horizontal: 12,
                         vertical: 10,
@@ -87,21 +98,40 @@ class LoginPage extends StatelessWidget {
                   ),
                   const SizedBox(height: 6),
                   TextField(
-                    obscureText: true,
                     cursorColor: const Color(0xFF002776),
+                    obscureText: !_isPasswordVisible,
                     decoration: InputDecoration(
                       hintText: 'Digite sua senha...',
                       enabledBorder: OutlineInputBorder(
                         borderRadius: BorderRadius.circular(12.0),
                         borderSide: const BorderSide(color: Colors.grey),
                       ),
-                        focusedBorder: OutlineInputBorder(
-                          borderRadius: BorderRadius.circular(12.0),
-                          borderSide: const BorderSide(color: Color(0xFF002776), width: 2.0), // Cor azul e mais grossa
+                      focusedBorder: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(12.0),
+                        borderSide: const BorderSide(
+                          color: Color(0xFF002776),
+                          width: 2.0,
                         ),
-                      contentPadding: EdgeInsets.symmetric(
+                      ),
+                      contentPadding: const EdgeInsets.symmetric(
                         horizontal: 12,
                         vertical: 10,
+                      ),
+                      suffixIcon: Padding(
+                        padding: const EdgeInsets.only(right: 12.0),
+                        child: IconButton(
+                          icon: Icon(
+                            _isPasswordVisible
+                                ? Icons.visibility
+                                : Icons.visibility_off,
+                            color: Colors.grey,
+                          ),
+                          onPressed: () {
+                            setState(() {
+                              _isPasswordVisible = !_isPasswordVisible;
+                            });
+                          },
+                        ),
                       ),
                     ),
                   ),

@@ -41,7 +41,7 @@ class _AnimatedNetworkBackgroundState extends State<AnimatedNetworkBackground>
   final List<Particle> _particles = [];
   final Random _random = Random();
   final int _numberOfParticles = 170;
-  final double _maxDistance = 150.0;
+  final double _maxDistance = 120.0;
   
   bool _particlesInitialized = false;
 
