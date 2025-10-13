@@ -1,7 +1,20 @@
 import 'package:flutter/material.dart';
-// import 'src/pages/PaginaInicial.dart';
-import 'src/pages/Cadastro.dart';
+
+// import das paginas pra rodar:
+import 'src/pages/Login.dart'; 
 
 void main() {
-    runApp(Cadastro());
+  runApp(const MyApp());
+}
+
+class MyApp extends StatelessWidget {
+  const MyApp({super.key});
+
+  @override
+  Widget build(BuildContext context) {
+    return const MaterialApp(
+      
+      home: LoginPage(), 
+    );
+  }
 }
