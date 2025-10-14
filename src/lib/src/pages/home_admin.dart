@@ -156,26 +156,29 @@ class _HomeAdminPageState extends State<HomeAdminPage> {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Row(
+            Wrap(
+              alignment: WrapAlignment.spaceBetween,
+              crossAxisAlignment: WrapCrossAlignment.center,
+              runSpacing: 16.0,
+              spacing: 20.0,
               children: [
-                const Icon(
-                  Icons.calendar_today,
-                  color: Colors.white70,
-                  size: 16,
+                Row(
+                  mainAxisSize: MainAxisSize.min, 
+                  children: [
+                    const Icon(Icons.calendar_today, color: Colors.white70, size: 16),
+                    const SizedBox(width: 8),
+                    Text(
+                      'Atualizado em ${_formatDateTime(_lastUpdated)}',
+                      style: const TextStyle(color: Colors.white70),
+                    ),
+                  ],
                 ),
-                const SizedBox(width: 8),
-                Text(
-                  'Atualizado em ${_formatDateTime(_lastUpdated)}',
-                  style: const TextStyle(color: Colors.white70),
-                ),
-                const Spacer(),
+                // O Spacer não funciona com Wrap, o 'alignment' faz o trabalho dele.
                 ElevatedButton.icon(
                   style: ElevatedButton.styleFrom(
                     backgroundColor: Colors.indigo.shade400.withOpacity(0.5),
                     foregroundColor: Colors.white,
-                    shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(8),
-                    ),
+                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
                   ),
                   onPressed: () {
                     setState(() {
@@ -269,16 +272,15 @@ Widget _buildStatusItem({
           decoration: BoxDecoration(
             color: pillColor,
             borderRadius: BorderRadius.circular(12),
-            // ADICIONADO: A borda ("stroke")
+            // A borda ("stroke") dos balões
             border: Border.all(
               color: pillBorderColor,
-              width: 1.5, // Você pode ajustar a espessura aqui
+              width: 1.5, 
             ),
           ),
           child: Text(
             count.toString(),
             style: TextStyle(
-              // MODIFICADO: A cor do texto agora é a mesma da borda
               color: pillBorderColor,
               fontWeight: FontWeight.bold,
               fontSize: 12,
