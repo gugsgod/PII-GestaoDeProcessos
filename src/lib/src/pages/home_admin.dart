@@ -35,7 +35,6 @@ class _HomeAdminPageState extends State<HomeAdminPage> {
     return Scaffold(
       backgroundColor: primaryColor,
       appBar: AppBar(
-        // A AppBar continua mais grossa, como você pediu
         toolbarHeight: 80,
         backgroundColor: secondaryColor,
         elevation: 0,
@@ -53,7 +52,7 @@ class _HomeAdminPageState extends State<HomeAdminPage> {
         actions: [
           Padding(
             padding: const EdgeInsets.only(right: 20.0),
-            child: Image.asset('assets/images/logo_metroSP.png', height: 30),
+            child: Image.asset('assets/images/logo_metroSP.png', height: 50),
           ),
         ],
       ),
