@@ -27,8 +27,16 @@ class Particle {
   }
 }
 
+// MODIFICADO: O widget agora tem propriedades para customização
 class AnimatedNetworkBackground extends StatefulWidget {
-  const AnimatedNetworkBackground({super.key});
+  final int numberOfParticles;
+  final double maxDistance;
+
+  const AnimatedNetworkBackground({
+    super.key,
+    required this.numberOfParticles,
+    required this.maxDistance,
+  });
 
   @override
   State<AnimatedNetworkBackground> createState() =>
@@ -40,8 +48,6 @@ class _AnimatedNetworkBackgroundState extends State<AnimatedNetworkBackground>
   late AnimationController _controller;
   final List<Particle> _particles = [];
   final Random _random = Random();
-  final int _numberOfParticles = 170;
-  final double _maxDistance = 120.0;
   
   bool _particlesInitialized = false;
 
@@ -52,7 +58,6 @@ class _AnimatedNetworkBackgroundState extends State<AnimatedNetworkBackground>
       vsync: this,
       duration: const Duration(seconds: 10),
     )..repeat();
-    
   }
 
   @override
@@ -67,9 +72,8 @@ class _AnimatedNetworkBackgroundState extends State<AnimatedNetworkBackground>
       builder: (context, constraints) {
         final size = Size(constraints.maxWidth, constraints.maxHeight);
 
-        // Criamos as partículas aqui
         if (!_particlesInitialized) {
-          for (int i = 0; i < _numberOfParticles; i++) {
+          for (int i = 0; i < widget.numberOfParticles; i++) {
             _particles.add(
               Particle(
                 position: Offset(
@@ -96,7 +100,7 @@ class _AnimatedNetworkBackgroundState extends State<AnimatedNetworkBackground>
             return CustomPaint(
               painter: _NetworkPainter(
                 particles: _particles,
-                maxDistance: _maxDistance,
+                maxDistance: widget.maxDistance,
               ),
               child: const SizedBox.expand(),
             );

@@ -9,17 +9,30 @@ class LoginPage extends StatefulWidget {
 }
 
 class _LoginPageState extends State<LoginPage> {
-  // PASSO 2: Criada uma variável para controlar a visibilidade da senha
   bool _isPasswordVisible = false;
+
+  final _emailController = TextEditingController();
+  final _passwordController = TextEditingController();
+
+  @override
+  void dispose() {
+    _emailController.dispose();
+    _passwordController.dispose();
+    super.dispose();
+  }
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
       body: Stack(
         children: [
-          // efeito azul do fundo
+          // fundo e animação
           Container(color: const Color.fromARGB(255, 0, 14, 92)),
-          const AnimatedNetworkBackground(),
+          const AnimatedNetworkBackground(
+            numberOfParticles: 170, // A quantidade que você gostava
+            maxDistance: 120.0, // A distância que tínhamos antes
+          ),
+
           // caixa de login
           Center(
             child: Container(
@@ -62,7 +75,8 @@ class _LoginPageState extends State<LoginPage> {
                   ),
                   const SizedBox(height: 6),
                   TextField(
-                    obscureText: false,
+                    // conectando o controlador ao campo de texto:
+                    controller: _emailController,
                     cursorColor: const Color(0xFF002776),
                     decoration: InputDecoration(
                       hintText: 'Digite seu email...',
@@ -75,9 +89,9 @@ class _LoginPageState extends State<LoginPage> {
                         borderSide: const BorderSide(
                           color: Color(0xFF002776),
                           width: 2.0,
-                        ), // Cor azul e mais grossa
+                        ),
                       ),
-                      contentPadding: EdgeInsets.symmetric(
+                      contentPadding: const EdgeInsets.symmetric(
                         horizontal: 12,
                         vertical: 10,
                       ),
@@ -98,6 +112,8 @@ class _LoginPageState extends State<LoginPage> {
                   ),
                   const SizedBox(height: 6),
                   TextField(
+                    // conectando o controlador ao campo de texto:
+                    controller: _passwordController,
                     cursorColor: const Color(0xFF002776),
                     obscureText: !_isPasswordVisible,
                     decoration: InputDecoration(
@@ -146,10 +162,24 @@ class _LoginPageState extends State<LoginPage> {
                         vertical: 17,
                         horizontal: 47,
                       ),
-                      overlayColor: Colors.black.withOpacity(0.3),
+                      overlayColor: Colors.black.withOpacity(0.1),
                     ),
                     onPressed: () {
-                      Navigator.pushReplacementNamed(context, '/admin');
+                      // lógica de validação:
+
+                      final email = _emailController.text;
+                      if (email.endsWith('@admin.metrosp.com')) {
+                        Navigator.pushReplacementNamed(context, '/admin');
+                      } else {
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          const SnackBar(
+                            content: Text(
+                              'Email inválido. Por favor, use um email de administrador.',
+                            ),
+                            backgroundColor: Colors.redAccent,
+                          ),
+                        );
+                      }
                     },
                     child: const Text(
                       'Entrar',

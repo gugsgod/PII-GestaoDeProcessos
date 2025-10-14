@@ -1,6 +1,5 @@
 import 'package:flutter/material.dart';
-
-// import das paginas pra rodar:
+import 'src/pages/home_admin.dart'; 
 import 'src/pages/login_page.dart'; 
 
 void main() {
@@ -12,9 +11,14 @@ class MyApp extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return const MaterialApp(
+    return MaterialApp(
+      debugShowCheckedModeBanner: false,
       
-      home: LoginPage(), 
+      initialRoute: '/',
+      routes: {
+        '/': (context) => const LoginPage(),
+        '/admin': (context) => const HomeAdminPage(),
+      },
     );
   }
 }
