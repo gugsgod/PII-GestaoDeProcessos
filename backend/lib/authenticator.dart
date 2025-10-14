@@ -1,5 +1,5 @@
 
-import 'user.dart';
+import 'package:backend/user.dart';
 
 class Authenticator {
   static const _users = {
