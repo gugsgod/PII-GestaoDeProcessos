@@ -126,7 +126,7 @@ class AdminDrawer extends StatelessWidget {
             onTap: () async {
               await auth.logout(); // limpa token/claims
               if (context.mounted) {
-                Navigator.pushReplacementNamed(context, '/login');
+                Navigator.pushReplacementNamed(context, '/');
               }
             },
           ),
