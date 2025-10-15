@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:src/auth/auth_store.dart';
 import '../widgets/admin/home_admin/admin_drawer.dart';
 import 'animated_network_background.dart';
 import '../widgets/admin/home_admin/update_status_bar.dart';
@@ -28,6 +29,8 @@ class MateriaisAdminPage extends StatefulWidget {
 }
 
 class _MateriaisAdminPageState extends State<MateriaisAdminPage> {
+  final store = AuthStore();
+
   // Estado da página
   late DateTime _lastUpdated;
   String _selectedCategory = 'Todas as Categorias';
@@ -86,7 +89,7 @@ class _MateriaisAdminPageState extends State<MateriaisAdminPage> {
           ),
         ],
       ),
-      drawer: AdminDrawer(primaryColor: primaryColor, secondaryColor: secondaryColor),
+      drawer: AdminDrawer(primaryColor: primaryColor, secondaryColor: secondaryColor, auth: store),
       body: SingleChildScrollView(
         child: Padding(
           padding: const EdgeInsets.all(24.0),
