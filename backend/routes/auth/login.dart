@@ -1,8 +1,9 @@
 import 'dart:convert';
-import 'package:bcrypt/bcrypt.dart';
+import 'package:backend/security/bcrypt.dart';
 import 'package:dart_frog/dart_frog.dart';
 import 'package:dart_jsonwebtoken/dart_jsonwebtoken.dart';
 import 'package:postgres/postgres.dart';
+
 
 Response _json(int status, Object body) =>
     Response.json(statusCode: status, body: body);
@@ -49,13 +50,9 @@ Future<Response> onRequest(RequestContext context) async {
     }
 
     final row = rows.first.toColumnMap();
-    // final ativo = (row['ativo'] as bool?) ?? false;
-    // if (!ativo) {
-    //   return _json(403, {'error': 'Usuário inativo.'});
-    // }
-
+    
     final hash = row['senha'] as String;
-    final senhaOk = BCrypt.checkpw(senha, hash);
+    final senhaOk = verifyPassword(senha, hash);
     if (!senhaOk) {
       return _json(401, {'error': 'Credenciais inválidas.'});
     }
