@@ -1,7 +1,13 @@
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
-import 'animated_network_background.dart';
 import 'dart:math';
+
+// Import dos widgets que tem nessa página
+import '../widgets/admin/home_admin/admin_drawer.dart';
+import '../widgets/admin/home_admin/dashboard_card.dart';
+import '../widgets/admin/home_admin/recent_movements.dart';
+import '../widgets/admin/home_admin/update_status_bar.dart';
+import 'animated_network_background.dart';
 
 class Movimentacao {
   final String type;
