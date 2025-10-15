@@ -57,9 +57,22 @@ class AdminDrawer extends StatelessWidget {
                 ),
                 _buildSectionTitle('NAVEGAÇÃO'),
                 _buildDrawerItem(
+                  icon: Icons.dashboard_outlined, 
+                  text: 'Dashboard Operacional',
+                  onTap: () {
+                    // Fecha o menu e navega para a página de admin
+                    Navigator.pop(context);
+                    Navigator.pushReplacementNamed(context, '/admin');
+                  },
+                ),
+                _buildDrawerItem(
                   icon: Icons.inventory_2_outlined,
                   text: 'Materiais',
-                  onTap: () {},
+                  onTap: () {
+                    // Fecha o menu e navega para a nova página
+                    Navigator.pop(context); // Fecha o drawer
+                    Navigator.pushReplacementNamed(context, '/materiais');
+                  },
                 ),
                 _buildDrawerItem(
                   icon: Icons.build_outlined,
