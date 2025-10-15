@@ -68,8 +68,6 @@ class _LoginPageState extends State<LoginPage> {
           const AnimatedNetworkBackground(
             numberOfParticles: 170,
             maxDistance: 120.0,
-            numberOfParticles: 170,
-            maxDistance: 120.0,
           ),
 
           // caixa de login
@@ -77,7 +75,6 @@ class _LoginPageState extends State<LoginPage> {
             padding: const EdgeInsets.symmetric(horizontal: 24.0),
             child: Center(
               child: Container(
-                constraints: const BoxConstraints(maxWidth: 500),
                 constraints: const BoxConstraints(maxWidth: 500),
                 padding: const EdgeInsets.all(32),
                 decoration: BoxDecoration(
