@@ -7,6 +7,7 @@ import '../widgets/admin/home_admin/admin_drawer.dart';
 import '../widgets/admin/home_admin/dashboard_card.dart';
 import '../widgets/admin/home_admin/recent_movements.dart';
 import '../widgets/admin/home_admin/update_status_bar.dart';
+import '../widgets/admin/home_admin/quick_actions.dart';
 import 'animated_network_background.dart';
 
 class Movimentacao {
@@ -197,7 +198,11 @@ class _HomeAdminPageState extends State<HomeAdminPage> {
               RecentMovements(
                 movimentacoes: _movimentacoes,
                 scrollController: _scrollController,
+                isDesktop: isDesktop,
               ),
+              // Espaçamento e a nova seção de Ações Rápidas (chamada do widget quick actions)
+              const SizedBox(height: 40),
+              const QuickActions(),
             ],
           ),
         ),
