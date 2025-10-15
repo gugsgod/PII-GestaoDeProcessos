@@ -1,0 +1,1 @@
+// Barra com a data e o botão

@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
 import 'animated_network_background.dart';
+import 'package:http/http.dart' as http;
+import 'dart:convert';
 
 class LoginPage extends StatefulWidget {
   const LoginPage({super.key});
@@ -14,12 +16,72 @@ class _LoginPageState extends State<LoginPage> {
   final _emailController = TextEditingController();
   final _passwordController = TextEditingController();
 
+  // Variável de estado para controlar o loading
+  bool _isLoading = false;
+
   @override
   void dispose() {
     _emailController.dispose();
     _passwordController.dispose();
     super.dispose();
   }
+
+
+  // Função principal para a chamada de login
+  Future<void> _fazerLogin() async {
+    // Não faz nada se já estiver carregando
+    if (_isLoading) return;
+
+    // Mostra o indicador de loading e desabilita o botão
+    setState(() {
+      _isLoading = true;
+    });
+
+    // URL do back
+    final url = Uri.parse('https://sua-api.com/login'); 
+
+    try {
+      final response = await http.post(
+        url,
+        headers: {
+          'Content-Type': 'application/json', 
+        },
+        body: json.encode({
+          'email': _emailController.text,
+          'password': _passwordController.text,
+        }),
+      );
+
+      // Esconde o indicador de loading
+      setState(() {
+        _isLoading = false;
+      });
+
+      if (response.statusCode == 200) {   
+        // Navega para a tela de admin
+        Navigator.pushReplacementNamed(context, '/admin');
+
+      } else {
+        _mostrarErro('Email ou senha inválidos.');
+      }
+
+    } catch (error) {
+      setState(() {
+        _isLoading = false;
+      });
+      _mostrarErro('Não foi possível conectar ao servidor. Verifique sua internet.');
+    }
+  }
+
+  void _mostrarErro(String mensagem) {
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(mensagem),
+        backgroundColor: Colors.redAccent,
+      ),
+    );
+  }
+
 
   @override
   Widget build(BuildContext context) {
@@ -165,25 +227,20 @@ class _LoginPageState extends State<LoginPage> {
                         ),
                         overlayColor: Colors.black.withOpacity(0.1),
                       ),
-                      onPressed: () {
-                        final email = _emailController.text;
-                        if (email.endsWith('@admin.metrosp.com')) {
-                          Navigator.pushReplacementNamed(context, '/admin');
-                        } else {
-                          ScaffoldMessenger.of(context).showSnackBar(
-                            const SnackBar(
-                              content: Text(
-                                'Email inválido. Por favor, use um email de administrador.',
+                      onPressed: _fazerLogin,
+                      child: _isLoading
+                          ? const SizedBox(
+                              height: 20,
+                              width: 20,
+                              child: CircularProgressIndicator(
+                                color: Colors.white,
+                                strokeWidth: 2,
                               ),
-                              backgroundColor: Colors.redAccent,
+                            )
+                          : const Text(
+                              'Entrar',
+                              style: TextStyle(fontSize: 16, color: Colors.white),
                             ),
-                          );
-                        }
-                      },
-                      child: const Text(
-                        'Entrar',
-                        style: TextStyle(fontSize: 16, color: Colors.white),
-                      ),
                     ),
                   ],
                 ),

@@ -1,0 +1,1 @@
+// Modelo do card de status
