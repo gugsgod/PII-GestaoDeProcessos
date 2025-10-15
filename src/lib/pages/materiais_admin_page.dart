@@ -192,7 +192,7 @@ class _MateriaisAdminPageState extends State<MateriaisAdminPage> {
 
   // Cabeçalho da Tabela
   Widget _buildTableHeader() {
-    const headerStyle = TextStyle(fontWeight: FontWeight.bold, color: Color.fromARGB(255, 44, 44, 44));
+    const headerStyle = TextStyle(fontWeight: FontWeight.bold, color: Colors.black54);
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 16.0),
       child: const Row(
@@ -201,14 +201,14 @@ class _MateriaisAdminPageState extends State<MateriaisAdminPage> {
           Expanded(flex: 4, child: Text('Nome', style: headerStyle)),
           Expanded(flex: 3, child: Text('Categoria', style: headerStyle)),
           Expanded(flex: 3, child: Text('Estoque Mínimo', style: headerStyle)),
-          Expanded(flex: 2, child: Center(child: Text('Status', style: headerStyle))),
+          Expanded(flex: 2, child: Text('Status', style: headerStyle)),
+          // Apenas a coluna de Ações continua centralizada
           SizedBox(width: 56, child: Center(child: Text('Ações', style: headerStyle))),
         ],
       ),
     );
   }
 
-  // Linha de dados da Tabela
   Widget _buildMaterialRow(MaterialItem item) {
     const cellStyle = TextStyle(color: Colors.black87);
     return Container(
@@ -217,27 +217,17 @@ class _MateriaisAdminPageState extends State<MateriaisAdminPage> {
         children: [
           Expanded(flex: 2, child: Text(item.codigo, style: cellStyle)),
           Expanded(flex: 4, child: Text(item.nome, style: const TextStyle(color: Colors.black, fontWeight: FontWeight.bold))),
-          Expanded(
-            flex: 3,
-            child: Center(
-              child: _buildChip(
-                item.categoria,
-                Colors.grey.shade300,
-                Colors.black54,
-                borderColor: Colors.grey.shade500, 
-              ),
-            ),
-          ),
-          Expanded(flex: 3, child: Center(child: Text(item.estoqueMinimo.toString(), style: cellStyle))),
-          Expanded(flex: 2, child: Center(child: _buildStatusChip(item.status))),
+          Expanded(flex: 3, child: _buildChip(item.categoria, Colors.grey.shade300, Colors.black54)),
+          Expanded(flex: 3, child: Text(item.estoqueMinimo.toString(), style: cellStyle)),
+          Expanded(flex: 2, child: _buildStatusChip(item.status)),
+          // coluna de ações centralizada
           SizedBox(width: 56, child: Center(child: IconButton(icon: const Icon(Icons.more_horiz, color: Colors.black54), onPressed: () {}))),
         ],
       ),
     );
   }
   
-  // Chip de Categoria
-  Widget _buildChip(String label, Color color, Color textColor, {Color? borderColor}) {
+  Widget _buildChip(String label, Color color, Color textColor) {
     return Align(
       alignment: Alignment.centerLeft,
       child: Container(
@@ -245,26 +235,17 @@ class _MateriaisAdminPageState extends State<MateriaisAdminPage> {
         decoration: BoxDecoration(
           color: color,
           borderRadius: BorderRadius.circular(16),
-          border: borderColor != null
-              ? Border.all(color: borderColor, width: 1.5)
-              : null,
         ),
         child: Text(label, style: TextStyle(color: textColor, fontSize: 12, fontWeight: FontWeight.bold)),
       ),
     );
   }
 
-  // Chip de Status
   Widget _buildStatusChip(String status) {
     final bool isAtivo = status == 'Ativo';
     final backgroundColor = isAtivo ? Colors.green.shade100 : Colors.red.shade100;
-    final darkColor = isAtivo ? const Color.fromARGB(255, 60, 155, 65) : const Color.fromARGB(255, 211, 55, 55);
-
-    return _buildChip(
-      status,
-      backgroundColor,
-      darkColor, 
-      borderColor: darkColor, 
-    );
+    final textColor = isAtivo ? Colors.green.shade800 : Colors.red.shade800;
+    
+    return _buildChip(status, backgroundColor, textColor);
   }
 }
