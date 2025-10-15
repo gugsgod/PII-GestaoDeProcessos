@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:src/auth/auth_store.dart';
 import 'animated_network_background.dart';
 import 'package:src/services/auth_api.dart';
+import 'package:provider/provider.dart';
 
 class LoginPage extends StatefulWidget {
   const LoginPage({super.key});
@@ -30,11 +31,12 @@ class _LoginPageState extends State<LoginPage> {
 
       final result = await login(email, senha);
 
-      if (result.ok) {
-        final store = AuthStore();
-        await store.setToken(result.token!);
-        if (!context.mounted) return;
-        Navigator.of(context).pushReplacementNamed('/admin');
+      if (!mounted) return;
+
+      if (result.ok && result.token != null) {
+        final auth = context.read<AuthStore>();
+        await auth.setToken(result.token!);
+        Navigator.pushReplacementNamed(context, '/');
       } else {
         setState(() => _error = result.error ?? 'Erro ao entrar.');
       }

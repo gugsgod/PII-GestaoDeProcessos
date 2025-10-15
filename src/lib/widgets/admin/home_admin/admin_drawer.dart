@@ -1,18 +1,17 @@
 // admin_drawer.dart
 import 'package:flutter/material.dart';
+import 'package:provider/provider.dart';
 import 'package:src/auth/auth_store.dart';
 import 'package:src/services/capitalize.dart';
 
 class AdminDrawer extends StatelessWidget {
   final Color primaryColor;
   final Color secondaryColor;
-  final AuthStore auth; // << receber o store com as claims
 
   const AdminDrawer({
     super.key,
     required this.primaryColor,
     required this.secondaryColor,
-    required this.auth,
   });
 
   String _initial(String? name) {
@@ -22,7 +21,9 @@ class AdminDrawer extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final displayName = auth.name ?? 'Usuário';
+    // Lê o AuthStore centralizado via Provider
+    final auth = context.watch<AuthStore>();
+    final displayName = (auth.name ?? 'Usuário').capitalize();
     final displayRole = auth.role == 'admin' ? 'Administrador' : 'Membro';
 
     return Drawer(
@@ -37,7 +38,7 @@ class AdminDrawer extends StatelessWidget {
                 UserAccountsDrawerHeader(
                   decoration: BoxDecoration(color: primaryColor),
                   accountName: Text(
-                    displayName.capitalize(),
+                    displayName,
                     style: const TextStyle(
                       fontWeight: FontWeight.bold,
                       fontSize: 18,
@@ -57,10 +58,9 @@ class AdminDrawer extends StatelessWidget {
                 ),
                 _buildSectionTitle('NAVEGAÇÃO'),
                 _buildDrawerItem(
-                  icon: Icons.dashboard_outlined, 
+                  icon: Icons.dashboard_outlined,
                   text: 'Dashboard Operacional',
                   onTap: () {
-                    // Fecha o menu e navega para a página de admin
                     Navigator.pop(context);
                     Navigator.pushReplacementNamed(context, '/admin');
                   },
@@ -69,8 +69,7 @@ class AdminDrawer extends StatelessWidget {
                   icon: Icons.inventory_2_outlined,
                   text: 'Materiais',
                   onTap: () {
-                    // Fecha o menu e navega para a nova página
-                    Navigator.pop(context); // Fecha o drawer
+                    Navigator.pop(context);
                     Navigator.pushReplacementNamed(context, '/materiais');
                   },
                 ),
@@ -127,7 +126,7 @@ class AdminDrawer extends StatelessWidget {
             onTap: () async {
               await auth.logout(); // limpa token/claims
               if (context.mounted) {
-                Navigator.pushReplacementNamed(context, '/');
+                Navigator.pushReplacementNamed(context, '/login');
               }
             },
           ),

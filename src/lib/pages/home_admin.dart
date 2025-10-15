@@ -1,6 +1,7 @@
-import 'package:flutter/material.dart';
-import 'package:src/auth/auth_store.dart';
 import 'dart:math';
+import 'package:flutter/material.dart';
+import 'package:provider/provider.dart'; // <= ADICIONE
+import 'package:src/auth/auth_store.dart';
 
 // Import dos widgets que tem nessa página
 import '../widgets/admin/home_admin/admin_drawer.dart';
@@ -36,9 +37,7 @@ class HomeAdminPage extends StatefulWidget {
 }
 
 class _HomeAdminPageState extends State<HomeAdminPage> {
-  // O Estado da página: dados e controladores
-  final store = AuthStore();
-  bool _loaded = false;
+  // Removido: AuthStore local e _loaded
   late DateTime _lastUpdated;
   final ScrollController _scrollController = ScrollController();
   late List<Movimentacao> _movimentacoes;
@@ -46,15 +45,11 @@ class _HomeAdminPageState extends State<HomeAdminPage> {
   @override
   void initState() {
     super.initState();
-    store.load().then((_) {
-      if (mounted) setState(() => _loaded = true);
-    });
     _lastUpdated = DateTime.now();
     _carregarDadosIniciais();
   }
 
   void _carregarDadosIniciais() {
-    // essa função vai fzr uma chamada da API depois
     _movimentacoes = [
       Movimentacao(
         type: 'saida',
@@ -108,7 +103,6 @@ class _HomeAdminPageState extends State<HomeAdminPage> {
   }
 
   void _atualizarDados() {
-    // Simula uma atualização de dados
     setState(() {
       _lastUpdated = DateTime.now();
       _movimentacoes.shuffle(Random());
@@ -123,13 +117,18 @@ class _HomeAdminPageState extends State<HomeAdminPage> {
 
   @override
   Widget build(BuildContext context) {
-    // Variáveis de build
-    if (!_loaded){
+    // Lê AuthStore centralizado
+    final auth = context.watch<AuthStore>();
+
+    // Se não autenticado, redireciona
+    if (!auth.isAuthenticated) {
+      Future.microtask(() => Navigator.pushReplacementNamed(context, '/login'));
       return const Scaffold(body: Center(child: CircularProgressIndicator()));
     }
-    const Color primaryColor = Color(0xFF080023); //cor de fundo
-    const Color secondaryColor = Color.fromARGB( 255, 0, 14, 92,); //cor do app bar
-    final isDesktop = MediaQuery.of(context).size.width > 768; // define se a tela é grande o suficiente p duas colunas
+
+    const Color primaryColor = Color(0xFF080023);
+    const Color secondaryColor = Color.fromARGB(255, 0, 14, 92);
+    final isDesktop = MediaQuery.of(context).size.width > 768;
 
     return Scaffold(
       backgroundColor: primaryColor,
@@ -137,12 +136,10 @@ class _HomeAdminPageState extends State<HomeAdminPage> {
         toolbarHeight: 80,
         backgroundColor: secondaryColor,
         elevation: 0,
-
         flexibleSpace: const AnimatedNetworkBackground(
           numberOfParticles: 35,
           maxDistance: 50.0,
         ),
-
         title: const Text(
           'Dashboard',
           style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold),
@@ -156,19 +153,18 @@ class _HomeAdminPageState extends State<HomeAdminPage> {
         ],
       ),
 
-      // Chamada do widget para o Drawer
-      drawer: AdminDrawer(
-        primaryColor: primaryColor,
-        secondaryColor: secondaryColor,
-        auth: store,
+      // Drawer agora lê o AuthStore via Provider internamente (sem passar auth)
+      drawer: const AdminDrawer(
+        primaryColor: Color(0xFF080023),
+        secondaryColor: Color.fromARGB(255, 0, 14, 92),
       ),
+
       body: SingleChildScrollView(
         child: Padding(
           padding: const EdgeInsets.all(24.0),
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              // Chamada do widget para a barra de status
               UpdateStatusBar(
                 isDesktop: isDesktop,
                 lastUpdated: _lastUpdated,
@@ -189,18 +185,15 @@ class _HomeAdminPageState extends State<HomeAdminPage> {
                 style: TextStyle(color: Colors.white70, fontSize: 16),
               ),
               const SizedBox(height: 40),
-              // Lógica de layout principal permanece aqui
               isDesktop
                   ? _buildDesktopGrid(isDesktop)
                   : _buildMobileList(isDesktop),
               const SizedBox(height: 40),
-              // Chamada limpa para o widget da lista de movimentações
               RecentMovements(
                 movimentacoes: _movimentacoes,
                 scrollController: _scrollController,
                 isDesktop: isDesktop,
               ),
-              // Espaçamento e a nova seção de Ações Rápidas (chamada do widget quick actions)
               const SizedBox(height: 40),
               const QuickActions(),
             ],
@@ -210,7 +203,7 @@ class _HomeAdminPageState extends State<HomeAdminPage> {
     );
   }
 
-  // As funções que controlam o layout principal da pág permanecem aqui
+  // Layouts
   Widget _buildDesktopGrid(bool isDesktop) {
     return GridView.count(
       shrinkWrap: true,
@@ -253,7 +246,6 @@ class _HomeAdminPageState extends State<HomeAdminPage> {
   }
 
   Widget _buildMobileList(bool isDesktop) {
-    // lista de dados para os cards
     final cardData = [
       {
         'title': 'Total de Materiais:',
@@ -288,7 +280,6 @@ class _HomeAdminPageState extends State<HomeAdminPage> {
       separatorBuilder: (context, index) => const SizedBox(height: 20),
       itemBuilder: (context, index) {
         final data = cardData[index];
-        // Cada item da lista agora é um DashboardCard, usando os dados da nossa lista
         return DashboardCard(
           isDesktop: isDesktop,
           title: data['title'] as String,
