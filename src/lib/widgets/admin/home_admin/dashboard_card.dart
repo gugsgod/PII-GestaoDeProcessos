@@ -25,7 +25,8 @@ class DashboardCard extends StatelessWidget {
     return Container(
       padding: const EdgeInsets.all(20),
       decoration: BoxDecoration(
-        color: const Color(0xFF1E293B),
+        // CORRIGIDO: Voltando para a cor clara que você escolheu
+        color: const Color.fromARGB(209, 255, 255, 255),
         borderRadius: BorderRadius.circular(16),
       ),
       child: Stack(
@@ -37,7 +38,8 @@ class DashboardCard extends StatelessWidget {
               Text(
                 title,
                 style: TextStyle(
-                  color: Colors.grey.shade400,
+                  // CORRIGIDO: Texto escuro para contrastar com o fundo claro
+                  color: const Color.fromARGB(255, 32, 32, 32),
                   fontWeight: FontWeight.bold,
                   fontSize: titleFontSize,
                 ),
@@ -46,7 +48,8 @@ class DashboardCard extends StatelessWidget {
               Text(
                 value,
                 style: TextStyle(
-                  color: Colors.grey.shade200,
+                  // CORRIGIDO: Texto escuro
+                  color: const Color.fromARGB(255, 32, 32, 32),
                   fontWeight: FontWeight.bold,
                   fontSize: valueFontSize,
                 ),

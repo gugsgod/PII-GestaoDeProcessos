@@ -68,6 +68,8 @@ class _LoginPageState extends State<LoginPage> {
           const AnimatedNetworkBackground(
             numberOfParticles: 170,
             maxDistance: 120.0,
+            numberOfParticles: 170,
+            maxDistance: 120.0,
           ),
 
           // caixa de login
@@ -75,6 +77,7 @@ class _LoginPageState extends State<LoginPage> {
             padding: const EdgeInsets.symmetric(horizontal: 24.0),
             child: Center(
               child: Container(
+                constraints: const BoxConstraints(maxWidth: 500),
                 constraints: const BoxConstraints(maxWidth: 500),
                 padding: const EdgeInsets.all(32),
                 decoration: BoxDecoration(
@@ -99,10 +102,49 @@ class _LoginPageState extends State<LoginPage> {
                           'assets/images/logo_metroSP.png',
                           height: 60,
                         ),
+                        Image.asset(
+                          'assets/images/logo_metroSP.png',
+                          height: 60,
+                        ),
                       ],
                     ),
                     const SizedBox(height: 40),
 
+                    // campo de login
+                    const Align(
+                      alignment: Alignment.centerLeft,
+                      child: Text(
+                        'Login:',
+                        style: TextStyle(
+                          fontWeight: FontWeight.bold,
+                          fontSize: 16,
+                        ),
+                      ),
+                    ),
+                    const SizedBox(height: 6),
+                    TextField(
+                      controller: _emailController,
+                      cursorColor: const Color(0xFF002776),
+                      decoration: InputDecoration(
+                        hintText: 'Digite seu email...',
+                        enabledBorder: OutlineInputBorder(
+                          borderRadius: BorderRadius.circular(12.0),
+                          borderSide: const BorderSide(color: Colors.grey),
+                        ),
+                        focusedBorder: OutlineInputBorder(
+                          borderRadius: BorderRadius.circular(12.0),
+                          borderSide: const BorderSide(
+                            color: Color(0xFF002776),
+                            width: 2.0,
+                          ),
+                        ),
+                        contentPadding: const EdgeInsets.symmetric(
+                          horizontal: 12,
+                          vertical: 10,
+                        ),
+                      ),
+                    ),
+                    const SizedBox(height: 30),
                     // campo de login
                     const Align(
                       alignment: Alignment.centerLeft,
@@ -191,7 +233,60 @@ class _LoginPageState extends State<LoginPage> {
                       ),
                     ),
                     const SizedBox(height: 30),
+                    // campo de senha
+                    const Align(
+                      alignment: Alignment.centerLeft,
+                      child: Text(
+                        'Senha:',
+                        style: TextStyle(
+                          fontWeight: FontWeight.bold,
+                          fontSize: 16,
+                        ),
+                      ),
+                    ),
+                    const SizedBox(height: 6),
+                    TextField(
+                      controller: _passwordController,
+                      cursorColor: const Color(0xFF002776),
+                      obscureText: !_isPasswordVisible,
+                      decoration: InputDecoration(
+                        hintText: 'Digite sua senha...',
+                        enabledBorder: OutlineInputBorder(
+                          borderRadius: BorderRadius.circular(12.0),
+                          borderSide: const BorderSide(color: Colors.grey),
+                        ),
+                        focusedBorder: OutlineInputBorder(
+                          borderRadius: BorderRadius.circular(12.0),
+                          borderSide: const BorderSide(
+                            color: Color(0xFF002776),
+                            width: 2.0,
+                          ),
+                        ),
+                        contentPadding: const EdgeInsets.symmetric(
+                          horizontal: 12,
+                          vertical: 10,
+                        ),
+                        suffixIcon: Padding(
+                          padding: const EdgeInsets.only(right: 12.0),
+                          child: IconButton(
+                            icon: Icon(
+                              _isPasswordVisible
+                                  ? Icons.visibility
+                                  : Icons.visibility_off,
+                              color: Colors.grey,
+                            ),
+                            onPressed: () {
+                              setState(() {
+                                _isPasswordVisible = !_isPasswordVisible;
+                              });
+                            },
+                          ),
+                        ),
+                      ),
+                    ),
+                    const SizedBox(height: 30),
 
+                    // botao de entrar
                     // botao de entrar
                     ElevatedButton(
                       style: ElevatedButton.styleFrom(
