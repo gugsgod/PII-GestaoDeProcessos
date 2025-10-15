@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:src/auth/auth_store.dart';
 import 'dart:math';
 
 // Import dos widgets que tem nessa página
@@ -35,6 +36,8 @@ class HomeAdminPage extends StatefulWidget {
 
 class _HomeAdminPageState extends State<HomeAdminPage> {
   // O Estado da página: dados e controladores
+  final store = AuthStore();
+  bool _loaded = false;
   late DateTime _lastUpdated;
   final ScrollController _scrollController = ScrollController();
   late List<Movimentacao> _movimentacoes;
@@ -42,6 +45,9 @@ class _HomeAdminPageState extends State<HomeAdminPage> {
   @override
   void initState() {
     super.initState();
+    store.load().then((_) {
+      if (mounted) setState(() => _loaded = true);
+    });
     _lastUpdated = DateTime.now();
     _carregarDadosIniciais();
   }
@@ -117,6 +123,9 @@ class _HomeAdminPageState extends State<HomeAdminPage> {
   @override
   Widget build(BuildContext context) {
     // Variáveis de build
+    if (!_loaded){
+      return const Scaffold(body: Center(child: CircularProgressIndicator()));
+    }
     const Color primaryColor = Color(0xFF080023); //cor de fundo
     const Color secondaryColor = Color.fromARGB( 255, 0, 14, 92,); //cor do app bar
     final isDesktop = MediaQuery.of(context).size.width > 768; // define se a tela é grande o suficiente p duas colunas
@@ -150,6 +159,7 @@ class _HomeAdminPageState extends State<HomeAdminPage> {
       drawer: AdminDrawer(
         primaryColor: primaryColor,
         secondaryColor: secondaryColor,
+        auth: store,
       ),
       body: SingleChildScrollView(
         child: Padding(

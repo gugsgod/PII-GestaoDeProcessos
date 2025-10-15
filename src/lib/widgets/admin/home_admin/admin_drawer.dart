@@ -1,19 +1,29 @@
-// Menu lateral
-
+// admin_drawer.dart
 import 'package:flutter/material.dart';
+import 'package:src/auth/auth_store.dart';
 
 class AdminDrawer extends StatelessWidget {
   final Color primaryColor;
   final Color secondaryColor;
+  final AuthStore auth; // << receber o store com as claims
 
   const AdminDrawer({
     super.key,
     required this.primaryColor,
     required this.secondaryColor,
+    required this.auth,
   });
+
+  String _initial(String? name) {
+    final n = (name ?? '').trim();
+    return n.isNotEmpty ? n[0].toUpperCase() : 'U';
+  }
 
   @override
   Widget build(BuildContext context) {
+    final displayName = auth.name ?? 'Usuário';
+    final displayRole = auth.role ?? '—';
+
     return Drawer(
       backgroundColor: secondaryColor,
       shape: const RoundedRectangleBorder(borderRadius: BorderRadius.zero),
@@ -25,16 +35,22 @@ class AdminDrawer extends StatelessWidget {
               children: [
                 UserAccountsDrawerHeader(
                   decoration: BoxDecoration(color: primaryColor),
-                  accountName: const Text(
-                    'Rosana dos Santos',
-                    style: TextStyle(fontWeight: FontWeight.bold, fontSize: 18),
+                  accountName: Text(
+                    displayName,
+                    style: const TextStyle(
+                      fontWeight: FontWeight.bold,
+                      fontSize: 18,
+                    ),
                   ),
-                  accountEmail: const Text('Administrador'),
-                  currentAccountPicture: const CircleAvatar(
+                  accountEmail: Text(displayRole),
+                  currentAccountPicture: CircleAvatar(
                     backgroundColor: Colors.deepPurple,
                     child: Text(
-                      'R',
-                      style: TextStyle(fontSize: 24.0, color: Colors.white),
+                      _initial(displayName),
+                      style: const TextStyle(
+                        fontSize: 24.0,
+                        color: Colors.white,
+                      ),
                     ),
                   ),
                 ),
@@ -94,18 +110,22 @@ class AdminDrawer extends StatelessWidget {
           _buildDrawerItem(
             icon: Icons.logout,
             text: 'Sair',
-            onTap: () => Navigator.pushReplacementNamed(context, '/'),
+            onTap: () async {
+              await auth.logout(); // limpa token/claims
+              if (context.mounted) {
+                Navigator.pushReplacementNamed(context, '/');
+              }
+            },
           ),
         ],
       ),
     );
   }
 
-  // Métodos auxiliares que pertencem apenas ao Drawer:
-
+  // Helpers
   Widget _buildSectionTitle(String title) {
     return Padding(
-      padding: const EdgeInsets.fromLTRB(16.0, 16.0, 16.0, 8.0),
+      padding: const EdgeInsets.fromLTRB(16, 16, 16, 8),
       child: Text(
         title,
         style: const TextStyle(color: Colors.white54, fontSize: 12),
@@ -133,7 +153,7 @@ class AdminDrawer extends StatelessWidget {
     required Color pillBorderColor,
   }) {
     return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 8.0),
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
       child: Row(
         children: [
           Container(
@@ -149,15 +169,14 @@ class AdminDrawer extends StatelessWidget {
             ),
           ),
           Container(
-            padding: const EdgeInsets.symmetric(horizontal: 8.0, vertical: 2.0),
+            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
             decoration: BoxDecoration(
               color: pillColor,
               borderRadius: BorderRadius.circular(12),
-              // A borda ("stroke") dos balões
               border: Border.all(color: pillBorderColor, width: 1.5),
             ),
             child: Text(
-              count.toString(),
+              '$count',
               style: TextStyle(
                 color: pillBorderColor,
                 fontWeight: FontWeight.bold,

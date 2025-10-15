@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
+import 'package:src/auth/auth_store.dart';
 import 'animated_network_background.dart';
-import 'package:shared_preferences/shared_preferences.dart';
 import 'package:src/services/auth_api.dart';
 
 class LoginPage extends StatefulWidget {
@@ -25,19 +25,15 @@ class _LoginPageState extends State<LoginPage> {
     });
 
     try {
-      final email = _emailController.text.trim(); 
+      final email = _emailController.text.trim();
       final senha = _passwordController.text;
 
       final result = await login(email, senha);
 
-      if (!mounted) return;
-
       if (result.ok) {
-        if (result.token != null) {
-          final prefs = await SharedPreferences.getInstance();
-          await prefs.setString('auth_token', result.token!);
-        }
-        // Use pushReplacementNamed (ou MaterialPageRoute)
+        final store = AuthStore();
+        await store.setToken(result.token!);
+        if (!context.mounted) return;
         Navigator.of(context).pushReplacementNamed('/admin');
       } else {
         setState(() => _error = result.error ?? 'Erro ao entrar.');
@@ -46,8 +42,7 @@ class _LoginPageState extends State<LoginPage> {
       if (!mounted) return;
       setState(() => _error = 'Falha inesperada: $e');
     } finally {
-      if (mounted)
-        setState(() => _isLoading = false); 
+      if (mounted) setState(() => _isLoading = false);
     }
   }
 
@@ -99,14 +94,9 @@ class _LoginPageState extends State<LoginPage> {
                           'assets/images/logo_metroSP.png',
                           height: 60,
                         ),
-                        Image.asset(
-                          'assets/images/logo_metroSP.png',
-                          height: 60,
-                        ),
                       ],
                     ),
                     const SizedBox(height: 40),
-
                     // campo de login
                     const Align(
                       alignment: Alignment.centerLeft,
@@ -138,94 +128,6 @@ class _LoginPageState extends State<LoginPage> {
                         contentPadding: const EdgeInsets.symmetric(
                           horizontal: 12,
                           vertical: 10,
-                        ),
-                      ),
-                    ),
-                    const SizedBox(height: 30),
-                    // campo de login
-                    const Align(
-                      alignment: Alignment.centerLeft,
-                      child: Text(
-                        'Login:',
-                        style: TextStyle(
-                          fontWeight: FontWeight.bold,
-                          fontSize: 16,
-                        ),
-                      ),
-                    ),
-                    const SizedBox(height: 6),
-                    TextField(
-                      controller: _emailController,
-                      cursorColor: const Color(0xFF002776),
-                      decoration: InputDecoration(
-                        hintText: 'Digite seu email...',
-                        enabledBorder: OutlineInputBorder(
-                          borderRadius: BorderRadius.circular(12.0),
-                          borderSide: const BorderSide(color: Colors.grey),
-                        ),
-                        focusedBorder: OutlineInputBorder(
-                          borderRadius: BorderRadius.circular(12.0),
-                          borderSide: const BorderSide(
-                            color: Color(0xFF002776),
-                            width: 2.0,
-                          ),
-                        ),
-                        contentPadding: const EdgeInsets.symmetric(
-                          horizontal: 12,
-                          vertical: 10,
-                        ),
-                      ),
-                    ),
-                    const SizedBox(height: 30),
-
-                    // campo de senha
-                    const Align(
-                      alignment: Alignment.centerLeft,
-                      child: Text(
-                        'Senha:',
-                        style: TextStyle(
-                          fontWeight: FontWeight.bold,
-                          fontSize: 16,
-                        ),
-                      ),
-                    ),
-                    const SizedBox(height: 6),
-                    TextField(
-                      controller: _passwordController,
-                      cursorColor: const Color(0xFF002776),
-                      obscureText: !_isPasswordVisible,
-                      decoration: InputDecoration(
-                        hintText: 'Digite sua senha...',
-                        enabledBorder: OutlineInputBorder(
-                          borderRadius: BorderRadius.circular(12.0),
-                          borderSide: const BorderSide(color: Colors.grey),
-                        ),
-                        focusedBorder: OutlineInputBorder(
-                          borderRadius: BorderRadius.circular(12.0),
-                          borderSide: const BorderSide(
-                            color: Color(0xFF002776),
-                            width: 2.0,
-                          ),
-                        ),
-                        contentPadding: const EdgeInsets.symmetric(
-                          horizontal: 12,
-                          vertical: 10,
-                        ),
-                        suffixIcon: Padding(
-                          padding: const EdgeInsets.only(right: 12.0),
-                          child: IconButton(
-                            icon: Icon(
-                              _isPasswordVisible
-                                  ? Icons.visibility
-                                  : Icons.visibility_off,
-                              color: Colors.grey,
-                            ),
-                            onPressed: () {
-                              setState(() {
-                                _isPasswordVisible = !_isPasswordVisible;
-                              });
-                            },
-                          ),
                         ),
                       ),
                     ),
