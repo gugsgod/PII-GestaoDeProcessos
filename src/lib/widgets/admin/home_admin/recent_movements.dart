@@ -23,11 +23,7 @@ class RecentMovements extends StatelessWidget {
             SizedBox(width: 12),
             Text(
               'Movimentações recentes:',
-              style: TextStyle(
-                color: Colors.white,
-                fontSize: 22,
-                fontWeight: FontWeight.bold,
-              ),
+              style: TextStyle(color: Colors.white, fontSize: 22, fontWeight: FontWeight.bold),
             ),
           ],
         ),
@@ -38,34 +34,35 @@ class RecentMovements extends StatelessWidget {
             color: Colors.white.withOpacity(0.05),
             borderRadius: BorderRadius.circular(16),
           ),
+          // CORRIGIDO: Adicionando toda a lógica do Scrollbar de volta
           child: ScrollbarTheme(
             data: ScrollbarThemeData(
-              thumbColor: MaterialStateProperty.all(
-                Colors.white.withOpacity(0.3),
-              ),
+              thumbColor: MaterialStateProperty.all(Colors.white.withOpacity(0.3)),
               mainAxisMargin: 16.0,
             ),
-            child: Scrollbar(
-              thumbVisibility: true,
-              interactive: true,
-              controller: scrollController,
-              child: ListView.separated(
+            child: Padding(
+              padding: const EdgeInsets.only(right: 8.0),
+              child: Scrollbar(
+                thumbVisibility: true,
+                interactive: true,
                 controller: scrollController,
-                padding: const EdgeInsets.all(16),
-                itemCount: movimentacoes.length,
-                separatorBuilder: (context, index) =>
-                    const SizedBox(height: 12),
-                itemBuilder: (context, index) {
-                  final item = movimentacoes[index];
-                  return _buildMovementItem(
-                    isEntrada: item.type == 'entrada',
-                    title: item.title,
-                    tag: item.tag,
-                    user: item.user,
-                    time: item.time,
-                    amount: item.amount,
-                  );
-                },
+                child: ListView.separated(
+                  controller: scrollController,
+                  padding: const EdgeInsets.all(16),
+                  itemCount: movimentacoes.length,
+                  separatorBuilder: (context, index) => const SizedBox(height: 12),
+                  itemBuilder: (context, index) {
+                    final item = movimentacoes[index];
+                    return _buildMovementItem(
+                      isEntrada: item.type == 'entrada',
+                      title: item.title,
+                      tag: item.tag,
+                      user: item.user,
+                      time: item.time,
+                      amount: item.amount,
+                    );
+                  },
+                ),
               ),
             ),
           ),
