@@ -1,6 +1,7 @@
 // admin_drawer.dart
 import 'package:flutter/material.dart';
 import 'package:src/auth/auth_store.dart';
+import 'package:src/services/capitalize.dart';
 
 class AdminDrawer extends StatelessWidget {
   final Color primaryColor;
@@ -22,7 +23,7 @@ class AdminDrawer extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final displayName = auth.name ?? 'Usuário';
-    final displayRole = auth.role ?? '—';
+    final displayRole = auth.role == 'admin' ? 'Administrador' : 'Membro';
 
     return Drawer(
       backgroundColor: secondaryColor,
@@ -36,7 +37,7 @@ class AdminDrawer extends StatelessWidget {
                 UserAccountsDrawerHeader(
                   decoration: BoxDecoration(color: primaryColor),
                   accountName: Text(
-                    displayName,
+                    displayName.capitalize(),
                     style: const TextStyle(
                       fontWeight: FontWeight.bold,
                       fontSize: 18,
