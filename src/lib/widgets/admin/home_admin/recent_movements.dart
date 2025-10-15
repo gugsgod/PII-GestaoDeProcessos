@@ -41,7 +41,6 @@ class RecentMovements extends StatelessWidget {
               thumbColor: MaterialStateProperty.all(Colors.white.withOpacity(0.3)),
               mainAxisMargin: 16.0,
             ),
-            // CORRIGIDO: Padding da barra de rolagem está de volta
             child: Padding(
               padding: const EdgeInsets.only(right: 8.0),
               child: Scrollbar(
@@ -74,7 +73,6 @@ class RecentMovements extends StatelessWidget {
     );
   }
 
-  // CORRIGIDO: Cores restauradas para o TEMA CLARO original
   Widget _buildMovementItem({
     required bool isDesktop,
     required bool isEntrada,
@@ -112,7 +110,7 @@ class RecentMovements extends StatelessWidget {
     return Container(
       padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
-        color: const Color.fromARGB(209, 255, 255, 255), // CORRETA: Fundo claro
+        color: const Color.fromARGB(209, 255, 255, 255), 
         borderRadius: BorderRadius.circular(12),
         boxShadow: [
           BoxShadow(
