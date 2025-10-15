@@ -188,6 +188,7 @@ class _HomeAdminPageState extends State<HomeAdminPage> {
               RecentMovements(
                 movimentacoes: _movimentacoes,
                 scrollController: _scrollController,
+                isDesktop: isDesktop,
               ),
               // Espaçamento e a nova seção de Ações Rápidas (chamada do widget quick actions)
               const SizedBox(height: 40),
