@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 import 'animated_network_background.dart';
-import 'package:http/http.dart' as http;
-import 'dart:convert';
+import 'package:shared_preferences/shared_preferences.dart';
+import 'package:src/services/auth_api.dart';
 
 class LoginPage extends StatefulWidget {
   const LoginPage({super.key});
@@ -15,9 +15,41 @@ class _LoginPageState extends State<LoginPage> {
 
   final _emailController = TextEditingController();
   final _passwordController = TextEditingController();
-
-  // Variável de estado para controlar o loading
   bool _isLoading = false;
+  String? _error;
+
+  Future<void> _onEntrar() async {
+    setState(() {
+      _isLoading = true;
+      _error = null;
+    });
+
+    try {
+      final email = _emailController.text.trim(); 
+      final senha = _passwordController.text;
+
+      final result = await login(email, senha);
+
+      if (!mounted) return;
+
+      if (result.ok) {
+        if (result.token != null) {
+          final prefs = await SharedPreferences.getInstance();
+          await prefs.setString('auth_token', result.token!);
+        }
+        // Use pushReplacementNamed (ou MaterialPageRoute)
+        Navigator.of(context).pushReplacementNamed('/admin');
+      } else {
+        setState(() => _error = result.error ?? 'Erro ao entrar.');
+      }
+    } catch (e) {
+      if (!mounted) return;
+      setState(() => _error = 'Falha inesperada: $e');
+    } finally {
+      if (mounted)
+        setState(() => _isLoading = false); 
+    }
+  }
 
   @override
   void dispose() {
@@ -25,63 +57,6 @@ class _LoginPageState extends State<LoginPage> {
     _passwordController.dispose();
     super.dispose();
   }
-
-
-  // Função principal para a chamada de login
-  Future<void> _fazerLogin() async {
-    // Não faz nada se já estiver carregando
-    if (_isLoading) return;
-
-    // Mostra o indicador de loading e desabilita o botão
-    setState(() {
-      _isLoading = true;
-    });
-
-    // URL do back
-    final url = Uri.parse('https://sua-api.com/login'); 
-
-    try {
-      final response = await http.post(
-        url,
-        headers: {
-          'Content-Type': 'application/json', 
-        },
-        body: json.encode({
-          'email': _emailController.text,
-          'password': _passwordController.text,
-        }),
-      );
-
-      // Esconde o indicador de loading
-      setState(() {
-        _isLoading = false;
-      });
-
-      if (response.statusCode == 200) {   
-        // Navega para a tela de admin
-        Navigator.pushReplacementNamed(context, '/admin');
-
-      } else {
-        _mostrarErro('Email ou senha inválidos.');
-      }
-
-    } catch (error) {
-      setState(() {
-        _isLoading = false;
-      });
-      _mostrarErro('Não foi possível conectar ao servidor. Verifique sua internet.');
-    }
-  }
-
-  void _mostrarErro(String mensagem) {
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text(mensagem),
-        backgroundColor: Colors.redAccent,
-      ),
-    );
-  }
-
 
   @override
   Widget build(BuildContext context) {
@@ -91,8 +66,8 @@ class _LoginPageState extends State<LoginPage> {
           // fundo e animação
           Container(color: const Color.fromARGB(255, 0, 14, 92)),
           const AnimatedNetworkBackground(
-            numberOfParticles: 170, 
-            maxDistance: 120.0, 
+            numberOfParticles: 170,
+            maxDistance: 120.0,
           ),
 
           // caixa de login
@@ -100,9 +75,7 @@ class _LoginPageState extends State<LoginPage> {
             padding: const EdgeInsets.symmetric(horizontal: 24.0),
             child: Center(
               child: Container(
-                constraints: const BoxConstraints(
-                  maxWidth: 500, 
-                ),
+                constraints: const BoxConstraints(maxWidth: 500),
                 padding: const EdgeInsets.all(32),
                 decoration: BoxDecoration(
                   color: Colors.white.withAlpha(217),
@@ -116,108 +89,110 @@ class _LoginPageState extends State<LoginPage> {
                   ],
                 ),
                 child: Column(
-                  
                   mainAxisSize: MainAxisSize.min,
                   children: [
                     // logo
                     Row(
                       mainAxisAlignment: MainAxisAlignment.start,
                       children: [
-                        Image.asset('assets/images/logo_metroSP.png', height: 60),
+                        Image.asset(
+                          'assets/images/logo_metroSP.png',
+                          height: 60,
+                        ),
                       ],
                     ),
                     const SizedBox(height: 40),
 
-                  // campo de login
-                  const Align(
-                    alignment: Alignment.centerLeft,
-                    child: Text(
-                      'Login:',
-                      style: TextStyle(
-                        fontWeight: FontWeight.bold,
-                        fontSize: 16,
-                      ),
-                    ),
-                  ),
-                  const SizedBox(height: 6),
-                  TextField(
-                    controller: _emailController,
-                    cursorColor: const Color(0xFF002776),
-                    decoration: InputDecoration(
-                      hintText: 'Digite seu email...',
-                      enabledBorder: OutlineInputBorder(
-                        borderRadius: BorderRadius.circular(12.0),
-                        borderSide: const BorderSide(color: Colors.grey),
-                      ),
-                      focusedBorder: OutlineInputBorder(
-                        borderRadius: BorderRadius.circular(12.0),
-                        borderSide: const BorderSide(
-                          color: Color(0xFF002776),
-                          width: 2.0,
+                    // campo de login
+                    const Align(
+                      alignment: Alignment.centerLeft,
+                      child: Text(
+                        'Login:',
+                        style: TextStyle(
+                          fontWeight: FontWeight.bold,
+                          fontSize: 16,
                         ),
                       ),
-                      contentPadding: const EdgeInsets.symmetric(
-                        horizontal: 12,
-                        vertical: 10,
-                      ),
                     ),
-                  ),
-                  const SizedBox(height: 30),
-
-                  // campo de senha
-                  const Align(
-                    alignment: Alignment.centerLeft,
-                    child: Text(
-                      'Senha:',
-                      style: TextStyle(
-                        fontWeight: FontWeight.bold,
-                        fontSize: 16,
-                      ),
-                    ),
-                  ),
-                  const SizedBox(height: 6),
-                  TextField(
-                    controller: _passwordController,
-                    cursorColor: const Color(0xFF002776),
-                    obscureText: !_isPasswordVisible,
-                    decoration: InputDecoration(
-                      hintText: 'Digite sua senha...',
-                      enabledBorder: OutlineInputBorder(
-                        borderRadius: BorderRadius.circular(12.0),
-                        borderSide: const BorderSide(color: Colors.grey),
-                      ),
-                      focusedBorder: OutlineInputBorder(
-                        borderRadius: BorderRadius.circular(12.0),
-                        borderSide: const BorderSide(
-                          color: Color(0xFF002776),
-                          width: 2.0,
+                    const SizedBox(height: 6),
+                    TextField(
+                      controller: _emailController,
+                      cursorColor: const Color(0xFF002776),
+                      decoration: InputDecoration(
+                        hintText: 'Digite seu email...',
+                        enabledBorder: OutlineInputBorder(
+                          borderRadius: BorderRadius.circular(12.0),
+                          borderSide: const BorderSide(color: Colors.grey),
                         ),
-                      ),
-                      contentPadding: const EdgeInsets.symmetric(
-                        horizontal: 12,
-                        vertical: 10,
-                      ),
-                      suffixIcon: Padding(
-                        padding: const EdgeInsets.only(right: 12.0),
-                        child: IconButton(
-                          icon: Icon(
-                            _isPasswordVisible
-                                ? Icons.visibility
-                                : Icons.visibility_off,
-                            color: Colors.grey,
+                        focusedBorder: OutlineInputBorder(
+                          borderRadius: BorderRadius.circular(12.0),
+                          borderSide: const BorderSide(
+                            color: Color(0xFF002776),
+                            width: 2.0,
                           ),
-                          onPressed: () {
-                            setState(() {
-                              _isPasswordVisible = !_isPasswordVisible;
-                            });
-                          },
+                        ),
+                        contentPadding: const EdgeInsets.symmetric(
+                          horizontal: 12,
+                          vertical: 10,
                         ),
                       ),
                     ),
-                  ),
-                  const SizedBox(height: 30),
+                    const SizedBox(height: 30),
 
-                  // botao de entrar
+                    // campo de senha
+                    const Align(
+                      alignment: Alignment.centerLeft,
+                      child: Text(
+                        'Senha:',
+                        style: TextStyle(
+                          fontWeight: FontWeight.bold,
+                          fontSize: 16,
+                        ),
+                      ),
+                    ),
+                    const SizedBox(height: 6),
+                    TextField(
+                      controller: _passwordController,
+                      cursorColor: const Color(0xFF002776),
+                      obscureText: !_isPasswordVisible,
+                      decoration: InputDecoration(
+                        hintText: 'Digite sua senha...',
+                        enabledBorder: OutlineInputBorder(
+                          borderRadius: BorderRadius.circular(12.0),
+                          borderSide: const BorderSide(color: Colors.grey),
+                        ),
+                        focusedBorder: OutlineInputBorder(
+                          borderRadius: BorderRadius.circular(12.0),
+                          borderSide: const BorderSide(
+                            color: Color(0xFF002776),
+                            width: 2.0,
+                          ),
+                        ),
+                        contentPadding: const EdgeInsets.symmetric(
+                          horizontal: 12,
+                          vertical: 10,
+                        ),
+                        suffixIcon: Padding(
+                          padding: const EdgeInsets.only(right: 12.0),
+                          child: IconButton(
+                            icon: Icon(
+                              _isPasswordVisible
+                                  ? Icons.visibility
+                                  : Icons.visibility_off,
+                              color: Colors.grey,
+                            ),
+                            onPressed: () {
+                              setState(() {
+                                _isPasswordVisible = !_isPasswordVisible;
+                              });
+                            },
+                          ),
+                        ),
+                      ),
+                    ),
+                    const SizedBox(height: 30),
+
+                    // botao de entrar
                     ElevatedButton(
                       style: ElevatedButton.styleFrom(
                         backgroundColor: const Color(0xFF002776),
@@ -227,7 +202,7 @@ class _LoginPageState extends State<LoginPage> {
                         ),
                         overlayColor: Colors.black.withOpacity(0.1),
                       ),
-                      onPressed: _fazerLogin,
+                      onPressed: _isLoading ? null : _onEntrar,
                       child: _isLoading
                           ? const SizedBox(
                               height: 20,
@@ -239,7 +214,10 @@ class _LoginPageState extends State<LoginPage> {
                             )
                           : const Text(
                               'Entrar',
-                              style: TextStyle(fontSize: 16, color: Colors.white),
+                              style: TextStyle(
+                                fontSize: 16,
+                                color: Colors.white,
+                              ),
                             ),
                     ),
                   ],
