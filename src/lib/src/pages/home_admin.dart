@@ -25,12 +25,10 @@ class _HomeAdminPageState extends State<HomeAdminPage> {
   @override
   Widget build(BuildContext context) {
     const Color primaryColor = Color(0xFF080023);
-    const Color secondaryColor = Color.fromARGB(
-      255,
-      0,
-      14,
-      92,
-    ); // Cor do menu e appbar
+    const Color secondaryColor = Color.fromARGB( 255, 0, 14, 92,); // Cor do menu e appbar
+
+    // Define se a tela é larga o suficiente para 2 colunas
+    final isDesktop = MediaQuery.of(context).size.width > 768;
 
     return Scaffold(
       backgroundColor: primaryColor,
@@ -151,68 +149,183 @@ class _HomeAdminPageState extends State<HomeAdminPage> {
         ),
       ),
 
-      body: Padding(
-        padding: const EdgeInsets.all(24.0),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
+      body: SingleChildScrollView(
+        child: Padding(
+          padding: const EdgeInsets.all(24.0),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              isDesktop ? _buildDesktopUpdateBar() : _buildMobileUpdateBar(),
+              
+              const SizedBox(height: 48),
+
+              const Text('Dashboard Operacional', style: TextStyle(color: Colors.white, fontSize: 32, fontWeight: FontWeight.bold)),
+              const SizedBox(height: 8),
+              const Text('Visão geral do sistema de controle de estoque', style: TextStyle(color: Colors.white70, fontSize: 16)),
+              
+              const SizedBox(height: 40),
+
+              // Lógica condicional para escolher entre Grid e List
+              isDesktop ? _buildDesktopGrid(isDesktop) : _buildMobileList(isDesktop),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+  
+  // Grade para o desktop
+  Widget _buildDesktopGrid(bool isDesktop) {
+    return GridView.count(
+      shrinkWrap: true,
+      physics: const NeverScrollableScrollPhysics(),
+      crossAxisCount: 2,
+      crossAxisSpacing: 50,
+      mainAxisSpacing: 30,
+      childAspectRatio: 5,
+      children: [
+        _buildDashboardCard(isDesktop: isDesktop, title: 'Total de Materiais:', value: '10.167', icon: Icons.inventory_2_outlined, iconBackgroundColor: Colors.blue.shade700),
+        _buildDashboardCard(isDesktop: isDesktop, title: 'Instrumentos Ativos:', value: '70', icon: Icons.handyman_outlined, iconBackgroundColor: Colors.green.shade600),
+        _buildDashboardCard(isDesktop: isDesktop, title: 'Retiradas:', value: '2', icon: Icons.outbox_outlined, iconBackgroundColor: Colors.orange.shade700),
+        _buildDashboardCard(isDesktop: isDesktop, title: 'Alertas Ativos:', value: '5', icon: Icons.warning_amber_rounded, iconBackgroundColor: Colors.red.shade600),
+      ],
+    );
+  }
+
+  // Lista vertical para o mobile
+  Widget _buildMobileList(bool isDesktop) {
+    // ListView.separated para adicionar espaçamento entre os cards automaticamente
+    return ListView.separated(
+      shrinkWrap: true,
+      physics: const NeverScrollableScrollPhysics(),
+      itemCount: 4, // número de cards
+      separatorBuilder: (context, index) => const SizedBox(height: 20), // Espaço entre os cards
+      itemBuilder: (context, index) {
+        // Retorna o card correto para cada posição na lista
+        if (index == 0) return _buildDashboardCard(isDesktop: isDesktop, title: 'Total de Materiais:', value: '10.167', icon: Icons.inventory_2_outlined, iconBackgroundColor: Colors.blue.shade700);
+        if (index == 1) return _buildDashboardCard(isDesktop: isDesktop, title: 'Instrumentos Ativos:', value: '70', icon: Icons.handyman_outlined, iconBackgroundColor: Colors.green.shade600);
+        if (index == 2) return _buildDashboardCard(isDesktop: isDesktop, title: 'Retiradas:', value: '2', icon: Icons.outbox_outlined, iconBackgroundColor: Colors.orange.shade700);
+        return _buildDashboardCard(isDesktop: isDesktop, title: 'Alertas Ativos:', value: '5', icon: Icons.warning_amber_rounded, iconBackgroundColor: Colors.red.shade600);
+      },
+    );
+  }
+
+  Widget _buildDashboardCard({
+    required bool isDesktop,
+    required String title,
+    required String value,
+    required IconData icon,
+    required Color iconBackgroundColor,
+  }) {
+    // As fontes menores para o mobile continuam importantes
+    final titleFontSize = isDesktop ? 23.0 : 18.0;
+    final valueFontSize = isDesktop ? 36.0 : 32.0;
+
+    return Container(
+      padding: const EdgeInsets.all(24),
+      decoration: BoxDecoration(
+        color: const Color(0xFFD9D9D9).withOpacity(0.9),
+        borderRadius: BorderRadius.circular(16),
+      ),
+      child: Stack(
+        children: [
+          Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            mainAxisAlignment: MainAxisAlignment.start,
+            children: [
+              Text(
+                title,
+                style: TextStyle(
+                  color: const Color.fromARGB(238, 51, 50, 50),
+                  fontWeight: FontWeight.bold,
+                  fontSize: titleFontSize,
+                ),
+              ),
+              const SizedBox(height: 8),
+              Text(
+                value,
+                style: TextStyle(
+                  color: Colors.black,
+                  fontWeight: FontWeight.bold,
+                  fontSize: valueFontSize,
+                ),
+              ),
+            ],
+          ),
+          Positioned(
+            top: 0,
+            right: 0,
+            child: Container(
+              padding: const EdgeInsets.all(12),
+              decoration: BoxDecoration(
+                color: iconBackgroundColor,
+                borderRadius: BorderRadius.circular(12),
+              ),
+              child: Icon(icon, color: Colors.white, size: 28),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+    Widget _buildDesktopUpdateBar() {
+    return Row(
+      children: [
+        const Icon(Icons.calendar_today, color: Colors.white70, size: 16),
+        const SizedBox(width: 8),
+        Text(
+          'Atualizado em ${_formatDateTime(_lastUpdated)}',
+          style: const TextStyle(color: Colors.white70),
+        ),
+        const Spacer(), 
+        ElevatedButton.icon(
+          style: ElevatedButton.styleFrom(
+            backgroundColor: Colors.indigo.shade400.withOpacity(0.5),
+            foregroundColor: Colors.white,
+            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+          ),
+          onPressed: () => setState(() => _lastUpdated = DateTime.now()),
+          icon: const Icon(Icons.refresh, size: 16),
+          label: const Text('Atualizar página'),
+        ),
+      ],
+    );
+  }
+
+  // Barra de atualização para telas estreitas (Mobile)
+  Widget _buildMobileUpdateBar() {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Row(
+          mainAxisSize: MainAxisSize.min,
           children: [
-            Row(
-              children: [
-                const Icon(
-                  Icons.calendar_today,
-                  color: Colors.white70,
-                  size: 16,
-                ),
-                const SizedBox(width: 8),
-                Text(
-                  'Atualizado em ${_formatDateTime(_lastUpdated)}',
-                  style: const TextStyle(color: Colors.white70),
-                ),
-                const Spacer(),
-                ElevatedButton.icon(
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor: Colors.indigo.shade400.withOpacity(0.5),
-                    foregroundColor: Colors.white,
-                    shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(8),
-                    ),
-                  ),
-                  onPressed: () {
-                    setState(() {
-                      _lastUpdated = DateTime.now();
-                    });
-                  },
-                  icon: const Icon(Icons.refresh, size: 16),
-                  label: const Text('Atualizar página'),
-                ),
-              ],
-            ),
-
-            const SizedBox(height: 100),
-
-            const Text(
-              'Dashboard Operacional',
-              style: TextStyle(
-                color: Colors.white,
-                fontSize: 32,
-                fontWeight: FontWeight.bold,
-              ),
-            ),
-            const SizedBox(height: 8),
-            const Text(
-              'Visão geral do sistema de controle de estoque',
-              style: TextStyle(color: Colors.white70, fontSize: 16),
-            ),
-            const SizedBox(height: 40),
-            const Center(
-              child: Text(
-                'Os cards e gráficos do dashboard aparecerão aqui.',
-                style: TextStyle(color: Colors.white38, fontSize: 18),
-              ),
+            const Icon(Icons.calendar_today, color: Colors.white70, size: 16),
+            const SizedBox(width: 8),
+            Text(
+              'Atualizado em ${_formatDateTime(_lastUpdated)}',
+              style: const TextStyle(color: Colors.white70),
             ),
           ],
         ),
-      ),
+        const SizedBox(height: 16),
+
+        // Para o botão ocupar a largura toda no mobile
+        SizedBox(
+          width: double.infinity,
+          child: ElevatedButton.icon(
+            style: ElevatedButton.styleFrom(
+              backgroundColor: Colors.indigo.shade400.withOpacity(0.5),
+              foregroundColor: Colors.white,
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+            ),
+            onPressed: () => setState(() => _lastUpdated = DateTime.now()),
+            icon: const Icon(Icons.refresh, size: 16),
+            label: const Text('Atualizar página'),
+          ),
+        ),
+      ],
     );
   }
 
@@ -269,16 +382,15 @@ Widget _buildStatusItem({
           decoration: BoxDecoration(
             color: pillColor,
             borderRadius: BorderRadius.circular(12),
-            // ADICIONADO: A borda ("stroke")
+            // A borda ("stroke") dos balões
             border: Border.all(
               color: pillBorderColor,
-              width: 1.5, // Você pode ajustar a espessura aqui
+              width: 1.5, 
             ),
           ),
           child: Text(
             count.toString(),
             style: TextStyle(
-              // MODIFICADO: A cor do texto agora é a mesma da borda
               color: pillBorderColor,
               fontWeight: FontWeight.bold,
               fontSize: 12,

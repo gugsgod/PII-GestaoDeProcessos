@@ -29,38 +29,42 @@ class _LoginPageState extends State<LoginPage> {
           // fundo e animação
           Container(color: const Color.fromARGB(255, 0, 14, 92)),
           const AnimatedNetworkBackground(
-            numberOfParticles: 170, // A quantidade que você gostava
-            maxDistance: 120.0, // A distância que tínhamos antes
+            numberOfParticles: 170, 
+            maxDistance: 120.0, 
           ),
 
           // caixa de login
-          Center(
-            child: Container(
-              width: 600,
-              height: 500,
-              padding: const EdgeInsets.all(32),
-              decoration: BoxDecoration(
-                color: Colors.white.withAlpha(217),
-                borderRadius: BorderRadius.circular(16),
-                boxShadow: [
-                  BoxShadow(
-                    color: const Color.fromARGB(255, 1, 1, 2).withAlpha(102),
-                    blurRadius: 10,
-                    offset: const Offset(0, 5),
-                  ),
-                ],
-              ),
-              child: Column(
-                children: [
-                  // logo
-                  Row(
-                    mainAxisAlignment: MainAxisAlignment.start,
-                    children: [
-                      Image.asset('assets/images/logo_metroSP.png', height: 60),
-                    ],
-                  ),
-                  const SizedBox(height: 30),
-                  const Spacer(),
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 24.0),
+            child: Center(
+              child: Container(
+                constraints: const BoxConstraints(
+                  maxWidth: 500, 
+                ),
+                padding: const EdgeInsets.all(32),
+                decoration: BoxDecoration(
+                  color: Colors.white.withAlpha(217),
+                  borderRadius: BorderRadius.circular(16),
+                  boxShadow: [
+                    BoxShadow(
+                      color: const Color.fromARGB(255, 1, 1, 2).withAlpha(102),
+                      blurRadius: 10,
+                      offset: const Offset(0, 5),
+                    ),
+                  ],
+                ),
+                child: Column(
+                  
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    // logo
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.start,
+                      children: [
+                        Image.asset('assets/images/logo_metroSP.png', height: 60),
+                      ],
+                    ),
+                    const SizedBox(height: 40),
 
                   // campo de login
                   const Align(
@@ -75,7 +79,6 @@ class _LoginPageState extends State<LoginPage> {
                   ),
                   const SizedBox(height: 6),
                   TextField(
-                    // conectando o controlador ao campo de texto:
                     controller: _emailController,
                     cursorColor: const Color(0xFF002776),
                     decoration: InputDecoration(
@@ -112,7 +115,6 @@ class _LoginPageState extends State<LoginPage> {
                   ),
                   const SizedBox(height: 6),
                   TextField(
-                    // conectando o controlador ao campo de texto:
                     controller: _passwordController,
                     cursorColor: const Color(0xFF002776),
                     obscureText: !_isPasswordVisible,
@@ -152,41 +154,39 @@ class _LoginPageState extends State<LoginPage> {
                     ),
                   ),
                   const SizedBox(height: 30),
-                  const Spacer(),
 
                   // botao de entrar
-                  ElevatedButton(
-                    style: ElevatedButton.styleFrom(
-                      backgroundColor: const Color(0xFF002776),
-                      padding: const EdgeInsets.symmetric(
-                        vertical: 17,
-                        horizontal: 47,
+                    ElevatedButton(
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: const Color(0xFF002776),
+                        padding: const EdgeInsets.symmetric(
+                          vertical: 17,
+                          horizontal: 47,
+                        ),
+                        overlayColor: Colors.black.withOpacity(0.1),
                       ),
-                      overlayColor: Colors.black.withOpacity(0.1),
-                    ),
-                    onPressed: () {
-                      // lógica de validação:
-
-                      final email = _emailController.text;
-                      if (email.endsWith('@admin.metrosp.com')) {
-                        Navigator.pushReplacementNamed(context, '/admin');
-                      } else {
-                        ScaffoldMessenger.of(context).showSnackBar(
-                          const SnackBar(
-                            content: Text(
-                              'Email inválido. Por favor, use um email de administrador.',
+                      onPressed: () {
+                        final email = _emailController.text;
+                        if (email.endsWith('@admin.metrosp.com')) {
+                          Navigator.pushReplacementNamed(context, '/admin');
+                        } else {
+                          ScaffoldMessenger.of(context).showSnackBar(
+                            const SnackBar(
+                              content: Text(
+                                'Email inválido. Por favor, use um email de administrador.',
+                              ),
+                              backgroundColor: Colors.redAccent,
                             ),
-                            backgroundColor: Colors.redAccent,
-                          ),
-                        );
-                      }
-                    },
-                    child: const Text(
-                      'Entrar',
-                      style: TextStyle(fontSize: 16, color: Colors.white),
+                          );
+                        }
+                      },
+                      child: const Text(
+                        'Entrar',
+                        style: TextStyle(fontSize: 16, color: Colors.white),
+                      ),
                     ),
-                  ),
-                ],
+                  ],
+                ),
               ),
             ),
           ),
