@@ -4,6 +4,7 @@ import 'package:src/auth/auth_store.dart';
 import 'pages/home_admin.dart';
 import 'pages/login_page.dart';
 import 'pages/materiais_admin_page.dart';
+import 'pages/instrumentos_admin_page.dart';
 
 void main() {
   runApp(
@@ -37,8 +38,10 @@ class MyApp extends StatelessWidget {
 
       // Demais rotas nomeadas
       routes: {
-        '/admin': (_) => const HomeAdminPage(),
-        '/materiais': (_) => const MateriaisAdminPage(),
+        '/': (context) => const LoginPage(),
+        '/admin': (context) => const HomeAdminPage(),
+        '/materiais': (context) => MateriaisAdminPage(),
+        '/instrumentos': (context) => const InstrumentosAdminPage(),
       },
     );
   }
