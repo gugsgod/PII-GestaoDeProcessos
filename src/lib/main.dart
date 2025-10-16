@@ -38,7 +38,7 @@ class MyApp extends StatelessWidget {
 
       // Demais rotas nomeadas
       routes: {
-        '/': (context) => const LoginPage(),
+        // '/': (context) => const LoginPage(),
         '/admin': (context) => const HomeAdminPage(),
         '/materiais': (context) => MateriaisAdminPage(),
         '/instrumentos': (context) => const InstrumentosAdminPage(),
