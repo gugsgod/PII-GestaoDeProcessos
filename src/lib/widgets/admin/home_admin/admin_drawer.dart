@@ -24,7 +24,7 @@ class AdminDrawer extends StatelessWidget {
     // Lê o AuthStore centralizado via Provider
     final auth = context.watch<AuthStore>();
     final displayName = (auth.name ?? 'Usuário').capitalize();
-    final displayRole = auth.role == 'admin' ? 'Administrador' : 'Membro';
+    final displayRole = auth.role == 'admin' ? 'Administrador' : 'Usuário';
 
     return Drawer(
       backgroundColor: secondaryColor,
