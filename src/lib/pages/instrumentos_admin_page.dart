@@ -1,102 +1,17 @@
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 
-// Mantive seus imports originais comentados para referência
+
 // import 'package:http/retry.dart';
 // import 'package:src/pages/home_admin.dart';
-// import 'package:src/widgets/admin/materiais_admin/filter_bar.dart';
+import 'package:src/widgets/admin/materiais_admin/filter_bar.dart';
 // import 'dart:math';
-// import '../widgets/admin/home_admin/admin_drawer.dart';
+import '../widgets/admin/home_admin/admin_drawer.dart';
 // import '../widgets/admin/home_admin/dashboard_card.dart';
 // import '../widgets/admin/home_admin/recent_movements.dart';
-// import '../widgets/admin/home_admin/update_status_bar.dart';
+import '../widgets/admin/home_admin/update_status_bar.dart';
 // import '../widgets/admin/home_admin/quick_actions.dart';
-// import 'animated_network_background.dart';
-
-// --- WIDGETS DE PLACEHOLDER (para o código rodar de forma isolada) ---
-class AnimatedNetworkBackground extends StatelessWidget {
-  final int numberOfParticles;
-  final double maxDistance;
-  const AnimatedNetworkBackground({super.key, required this.numberOfParticles, required this.maxDistance});
-  @override
-  Widget build(BuildContext context) => Container(color: const Color.fromARGB(255, 0, 14, 92));
-}
-
-class AdminDrawer extends StatelessWidget {
-  final Color primaryColor, secondaryColor;
-  const AdminDrawer({super.key, required this.primaryColor, required this.secondaryColor});
-  @override
-  Widget build(BuildContext context) => const Drawer(child: Center(child: Text('Admin Drawer')));
-}
-
-class UpdateStatusBar extends StatelessWidget {
-  final bool isDesktop;
-  final DateTime lastUpdated;
-  final VoidCallback onUpdate;
-  const UpdateStatusBar({super.key, required this.isDesktop, required this.lastUpdated, required this.onUpdate});
-  @override
-  Widget build(BuildContext context) {
-    return Row(
-      children: [
-        Text('Atualizado em ${DateFormat('dd/MM/yyyy, HH:mm').format(lastUpdated)}', style: const TextStyle(color: Colors.white70)),
-        IconButton(icon: const Icon(Icons.refresh, color: Colors.white), onPressed: onUpdate),
-      ],
-    );
-  }
-}
-
-class FilterBar extends StatelessWidget {
-  final String selectedCategory;
-  final ValueChanged<String?> onCategoryChanged;
-  const FilterBar({super.key, required this.selectedCategory, required this.onCategoryChanged});
-  @override
-  Widget build(BuildContext context) {
-     return Row(
-          children: [
-            const Expanded(
-              flex: 2,
-              child: TextField(
-                style: TextStyle(color: Colors.white),
-                decoration: InputDecoration(
-                  hintText: 'Buscar por nome ou patrimônio...',
-                  prefixIcon: Icon(Icons.search, color: Colors.white54),
-                  filled: true,
-                  fillColor: Color(0xFF1A202C),
-                  border: OutlineInputBorder(borderSide: BorderSide.none, borderRadius: BorderRadius.all(Radius.circular(8)))
-                ),
-              ),
-            ),
-            const SizedBox(width: 16),
-            Expanded(
-              flex: 1,
-              child: Container(
-                 padding: const EdgeInsets.symmetric(horizontal: 12.0),
-                 decoration: BoxDecoration(
-                    color: const Color(0xFF1A202C),
-                    borderRadius: BorderRadius.circular(8.0),
-                 ),
-                child: DropdownButtonHideUnderline(
-                  child: DropdownButton<String>(
-                    value: selectedCategory,
-                    isExpanded: true,
-                    icon: const Icon(Icons.keyboard_arrow_down, color: Colors.white54),
-                    dropdownColor: const Color(0xFF1A202C),
-                    items: <String>['Todas as Categorias', 'Elétricos', 'Mecânicos', 'Segurança']
-                        .map<DropdownMenuItem<String>>((String value) {
-                      return DropdownMenuItem<String>(
-                        value: value,
-                        child: Text(value, style: const TextStyle(color: Colors.white)),
-                      );
-                    }).toList(),
-                    onChanged: onCategoryChanged,
-                  ),
-                ),
-              ),
-            ),
-          ],
-        );
-  }
-}
+import 'animated_network_background.dart';
 
 // Enum para o status do instrumento, facilita o controle
 enum InstrumentStatus { ativo, inativo }
@@ -174,21 +89,13 @@ class _InstrumentosAdminPageState extends State<InstrumentosAdminPage>{
         toolbarHeight: 80,
         backgroundColor: secondaryColor,
         elevation: 0,
-
-        flexibleSpace: const AnimatedNetworkBackground(
-          numberOfParticles: 35,
-          maxDistance: 50.0,
-        ),
-
-        title: const Text(
-          "Instrumentos",
-          style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold),
-        ),
+        flexibleSpace: const AnimatedNetworkBackground(numberOfParticles: 35, maxDistance: 50.0),
+        title: const Text('Instrumentos', style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
         iconTheme: const IconThemeData(color: Colors.white),
         actions: [
           Padding(
             padding: const EdgeInsets.only(right: 20.0),
-            child: Image.asset('assets/images/logo_metroSP.png', height: 50, errorBuilder: (c, e, s) => const Icon(Icons.directions_transit)),
+            child: Image.asset('assets/images/logo_metroSP.png', height: 50),
           ),
         ],
       ),
