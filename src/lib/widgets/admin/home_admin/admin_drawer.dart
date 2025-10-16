@@ -60,7 +60,10 @@ class AdminDrawer extends StatelessWidget {
                 _buildDrawerItem(
                   icon: Icons.build_outlined,
                   text: 'Instrumentos',
-                  onTap: () {},
+                  onTap: () {
+                    Navigator.pop(context); // Fecha o drawer
+                    Navigator.pushReplacementNamed(context, '/instrumentos');
+                  },
                 ),
                 _buildDrawerItem(
                   icon: Icons.history_outlined,

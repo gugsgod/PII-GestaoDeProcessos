@@ -123,6 +123,7 @@ class _HomeAdminPageState extends State<HomeAdminPage> {
     final isDesktop = MediaQuery.of(context).size.width > 768; // define se a tela é grande o suficiente p duas colunas
 
     return Scaffold(
+      // Titulo
       backgroundColor: primaryColor,
       appBar: AppBar(
         toolbarHeight: 80,
