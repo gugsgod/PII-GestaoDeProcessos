@@ -1,0 +1,422 @@
+-- =====================================================================
+--  SCHEMA PII - Gestão de Materiais e Instrumentos (Metrô SP)
+--  Compatível com Postgres 14+ (Neon OK)
+-- =====================================================================
+
+BEGIN;
+
+-- ---------------------------------------------------------------------
+-- 0) EXTENSÕES E PREPARO
+-- ---------------------------------------------------------------------
+-- (Descomente se quiser tsvector simples pt-br no futuro)
+-- CREATE EXTENSION IF NOT EXISTS unaccent;
+-- CREATE EXTENSION IF NOT EXISTS pg_trgm;
+
+SET search_path TO public;
+
+-- ---------------------------------------------------------------------
+-- 1) TIPOS (ENUMs)
+-- ---------------------------------------------------------------------
+DO $$
+BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_type WHERE typname = 'role_t') THEN
+    CREATE TYPE role_t AS ENUM ('admin', 'user');
+  END IF;
+
+  IF NOT EXISTS (SELECT 1 FROM pg_type WHERE typname = 'instrumento_status_t') THEN
+    CREATE TYPE instrumento_status_t AS ENUM ('disponivel','em_uso','em_campo','manutencao','inativo');
+  END IF;
+
+  IF NOT EXISTS (SELECT 1 FROM pg_type WHERE typname = 'mov_material_op_t') THEN
+    CREATE TYPE mov_material_op_t AS ENUM ('entrada','saida','transferencia','consumo');
+  END IF;
+
+  IF NOT EXISTS (SELECT 1 FROM pg_type WHERE typname = 'mov_instrumento_op_t') THEN
+    CREATE TYPE mov_instrumento_op_t AS ENUM ('retirada','devolucao','transferencia');
+  END IF;
+
+  IF NOT EXISTS (SELECT 1 FROM pg_type WHERE typname = 'contexto_t') THEN
+    CREATE TYPE contexto_t AS ENUM ('base','veiculo');
+  END IF;
+
+  IF NOT EXISTS (SELECT 1 FROM pg_type WHERE typname = 'afericao_result_t') THEN
+    CREATE TYPE afericao_result_t AS ENUM ('aprovado','reprovado');
+  END IF;
+END
+$$;
+
+-- ---------------------------------------------------------------------
+-- 2) USUÁRIOS
+-- ---------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS users (
+  id            BIGSERIAL PRIMARY KEY,
+  nome          TEXT        NOT NULL,
+  email         TEXT        NOT NULL UNIQUE,
+  senha_hash    TEXT        NOT NULL,
+  role          role_t      NOT NULL DEFAULT 'user',
+  ativo         BOOLEAN     NOT NULL DEFAULT TRUE,
+  created_at    TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_at    TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE INDEX IF NOT EXISTS idx_users_role  ON users(role);
+CREATE INDEX IF NOT EXISTS idx_users_ativo ON users(ativo);
+
+-- ---------------------------------------------------------------------
+-- 3) ESTRUTURAS: BASES, VEÍCULOS, LOCAIS FÍSICOS
+-- ---------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS bases (
+  id          BIGSERIAL PRIMARY KEY,
+  nome        TEXT NOT NULL UNIQUE,
+  linha       TEXT,
+  ativo       BOOLEAN NOT NULL DEFAULT TRUE
+);
+
+CREATE TABLE IF NOT EXISTS veiculos (
+  id            BIGSERIAL PRIMARY KEY,
+  identificador TEXT NOT NULL UNIQUE, -- "Veículo 7"
+  ativo         BOOLEAN NOT NULL DEFAULT TRUE
+);
+
+CREATE TABLE IF NOT EXISTS locais_fisicos (
+  id            BIGSERIAL PRIMARY KEY,
+  contexto      contexto_t NOT NULL,            -- 'base' | 'veiculo'
+  base_id       BIGINT REFERENCES bases(id),
+  veiculo_id    BIGINT REFERENCES veiculos(id),
+  nome          TEXT NOT NULL,                  -- "ARM A/PRAT 2/GAV 22B"
+  UNIQUE (contexto, base_id, veiculo_id, nome),
+  CHECK (
+    (contexto='base' AND base_id IS NOT NULL AND veiculo_id IS NULL)
+ OR (contexto='veiculo' AND veiculo_id IS NOT NULL AND base_id IS NULL)
+  )
+);
+
+CREATE INDEX IF NOT EXISTS idx_locais_base ON locais_fisicos(base_id) WHERE contexto='base';
+CREATE INDEX IF NOT EXISTS idx_locais_veic ON locais_fisicos(veiculo_id) WHERE contexto='veiculo';
+
+-- ---------------------------------------------------------------------
+-- 4) MATERIAIS (SIMAC/SAP) E ESTOQUE
+-- ---------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS materiais (
+  id          BIGSERIAL PRIMARY KEY,
+  cod_sap     INTEGER NOT NULL UNIQUE,
+  descricao   TEXT    NOT NULL,
+  apelido     TEXT,
+  categoria   TEXT,
+  unidade     TEXT,          -- 'UN', 'MT', etc.
+  ativo       BOOLEAN NOT NULL DEFAULT TRUE,
+  created_at  TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_at  TIMESTAMPTZ NOT NULL DEFAULT now(),
+  CONSTRAINT ck_cod_sap_range CHECK (cod_sap BETWEEN 15000000 AND 15999999)
+);
+
+-- Busca textual simples (GIN tsvector opcional)
+-- CREATE INDEX IF NOT EXISTS idx_materiais_desc_tsv
+--   ON materiais USING GIN (to_tsvector('simple', coalesce(descricao,'')));
+
+CREATE INDEX IF NOT EXISTS idx_materiais_cat ON materiais(categoria) WHERE ativo;
+
+CREATE TABLE IF NOT EXISTS estoque_saldos (
+  id               BIGSERIAL PRIMARY KEY,
+  material_id      BIGINT NOT NULL REFERENCES materiais(id) ON DELETE CASCADE,
+  local_id         BIGINT NOT NULL REFERENCES locais_fisicos(id) ON DELETE CASCADE,
+  lote             TEXT,
+  qt_disp          NUMERIC(18,3) NOT NULL DEFAULT 0,
+  minimo           NUMERIC(18,3) NOT NULL DEFAULT 0,
+  UNIQUE(material_id, local_id, lote)
+);
+
+CREATE INDEX IF NOT EXISTS idx_saldo_material ON estoque_saldos(material_id);
+CREATE INDEX IF NOT EXISTS idx_saldo_local    ON estoque_saldos(local_id);
+CREATE INDEX IF NOT EXISTS idx_saldo_alerta   ON estoque_saldos(material_id, local_id) WHERE qt_disp < minimo;
+
+CREATE TABLE IF NOT EXISTS movimentacao_material (
+  id               BIGSERIAL PRIMARY KEY,
+  operacao         mov_material_op_t NOT NULL,  -- entrada/saida/transferencia/consumo
+  material_id      BIGINT NOT NULL REFERENCES materiais(id),
+  quantidade       NUMERIC(18,3) NOT NULL CHECK (quantidade > 0),
+  origem_local_id  BIGINT REFERENCES locais_fisicos(id),
+  destino_local_id BIGINT REFERENCES locais_fisicos(id),
+  lote             TEXT,
+  finalidade       TEXT,
+  responsavel_id   BIGINT NOT NULL REFERENCES users(id),
+  observacao       TEXT,
+  created_at       TIMESTAMPTZ NOT NULL DEFAULT now(),
+  CHECK (
+    (operacao='entrada'       AND destino_local_id IS NOT NULL)
+ OR (operacao='saida'         AND origem_local_id  IS NOT NULL)
+ OR (operacao='transferencia' AND origem_local_id  IS NOT NULL AND destino_local_id IS NOT NULL)
+ OR (operacao='consumo'       AND origem_local_id  IS NOT NULL)
+  )
+);
+
+CREATE INDEX IF NOT EXISTS idx_mov_mat_material ON movimentacao_material(material_id);
+CREATE INDEX IF NOT EXISTS idx_mov_mat_origem   ON movimentacao_material(origem_local_id);
+CREATE INDEX IF NOT EXISTS idx_mov_mat_destino  ON movimentacao_material(destino_local_id);
+CREATE INDEX IF NOT EXISTS idx_mov_mat_dt       ON movimentacao_material(created_at);
+
+-- ---------------------------------------------------------------------
+-- 5) INSTRUMENTOS / FERRAMENTAS
+-- ---------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS instrumentos (
+  id                   BIGSERIAL PRIMARY KEY,
+  patrimonio           TEXT    NOT NULL UNIQUE,
+  descricao            TEXT    NOT NULL,
+  categoria            TEXT,
+  status               instrumento_status_t NOT NULL DEFAULT 'disponivel',
+  local_atual_id       BIGINT REFERENCES locais_fisicos(id),
+  responsavel_atual_id BIGINT REFERENCES users(id),
+  proxima_calibracao_em DATE,
+  ativo                BOOLEAN NOT NULL DEFAULT TRUE,
+  created_at           TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_at           TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE INDEX IF NOT EXISTS idx_instr_status  ON instrumentos(status);
+CREATE INDEX IF NOT EXISTS idx_instr_local   ON instrumentos(local_atual_id);
+CREATE INDEX IF NOT EXISTS idx_instr_resp    ON instrumentos(responsavel_atual_id);
+CREATE INDEX IF NOT EXISTS idx_instr_calib   ON instrumentos(proxima_calibracao_em) WHERE ativo;
+
+CREATE TABLE IF NOT EXISTS movimentacao_instrumento (
+  id                 BIGSERIAL PRIMARY KEY,
+  operacao           mov_instrumento_op_t NOT NULL,    -- retirada/devolucao/transferencia
+  instrumento_id     BIGINT NOT NULL REFERENCES instrumentos(id),
+  origem_local_id    BIGINT REFERENCES locais_fisicos(id),
+  destino_local_id   BIGINT REFERENCES locais_fisicos(id),
+  responsavel_id     BIGINT NOT NULL REFERENCES users(id), -- quem executa a ação
+  destinatario_id    BIGINT REFERENCES users(id),          -- quem fica responsável (retirada)
+  observacao         TEXT,
+  created_at         TIMESTAMPTZ NOT NULL DEFAULT now(),
+  CHECK (
+    (operacao='retirada'      AND origem_local_id  IS NOT NULL AND destinatario_id IS NOT NULL)
+ OR (operacao='devolucao'     AND destino_local_id IS NOT NULL)
+ OR (operacao='transferencia' AND origem_local_id  IS NOT NULL AND destino_local_id IS NOT NULL)
+  )
+);
+
+CREATE INDEX IF NOT EXISTS idx_mov_inst_inst ON movimentacao_instrumento(instrumento_id);
+CREATE INDEX IF NOT EXISTS idx_mov_inst_dt   ON movimentacao_instrumento(created_at);
+
+CREATE TABLE IF NOT EXISTS afericoes (
+  id                  BIGSERIAL PRIMARY KEY,
+  instrumento_id      BIGINT NOT NULL REFERENCES instrumentos(id) ON DELETE CASCADE,
+  data                DATE   NOT NULL,
+  validade_em         DATE,
+  resultado           afericao_result_t NOT NULL,
+  laboratorio         TEXT,
+  numero_certificado  TEXT,
+  observacao          TEXT,
+  created_at          TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE INDEX IF NOT EXISTS idx_afericao_inst  ON afericoes(instrumento_id);
+CREATE INDEX IF NOT EXISTS idx_afericao_valid ON afericoes(validade_em);
+
+CREATE TABLE IF NOT EXISTS certificados (
+  id                 BIGSERIAL PRIMARY KEY,
+  instrumento_id     BIGINT NOT NULL REFERENCES instrumentos(id) ON DELETE CASCADE,
+  afericao_id        BIGINT REFERENCES afericoes(id) ON DELETE SET NULL,
+  storage_url        TEXT NOT NULL,
+  filename           TEXT,
+  mime_type          TEXT,
+  uploaded_by        BIGINT REFERENCES users(id),
+  uploaded_at        TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE INDEX IF NOT EXISTS idx_cert_inst ON certificados(instrumento_id);
+
+-- ---------------------------------------------------------------------
+-- 6) AUDITORIA
+-- ---------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS audit_log (
+  id            BIGSERIAL PRIMARY KEY,
+  entidade      TEXT       NOT NULL,   -- 'materiais','instrumentos','users','movimentacao_material', etc.
+  entidade_id   BIGINT,
+  acao          TEXT       NOT NULL,   -- 'create','update','delete','login','aferir','upload_certificado',...
+  user_id       BIGINT     REFERENCES users(id),
+  dados_antes   JSONB,
+  dados_depois  JSONB,
+  created_at    TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE INDEX IF NOT EXISTS idx_audit_entidade ON audit_log(entidade, entidade_id);
+CREATE INDEX IF NOT EXISTS idx_audit_user     ON audit_log(user_id);
+CREATE INDEX IF NOT EXISTS idx_audit_created  ON audit_log(created_at);
+
+-- ---------------------------------------------------------------------
+-- 7) FUNÇÕES AUXILIARES (UPSERT de saldo)
+-- ---------------------------------------------------------------------
+CREATE OR REPLACE FUNCTION upsert_saldo(p_material_id BIGINT,
+                                        p_local_id    BIGINT,
+                                        p_lote        TEXT,
+                                        p_delta       NUMERIC)
+RETURNS VOID
+LANGUAGE plpgsql
+AS $$
+BEGIN
+  LOOP
+    -- tenta atualizar
+    UPDATE estoque_saldos
+       SET qt_disp = qt_disp + p_delta
+     WHERE material_id = p_material_id
+       AND local_id    = p_local_id
+       AND ((lote IS NULL AND p_lote IS NULL) OR lote = p_lote);
+    IF FOUND THEN
+      RETURN;
+    END IF;
+
+    -- se não existia, cria com qt_disp inicial = p_delta
+    BEGIN
+      INSERT INTO estoque_saldos(material_id, local_id, lote, qt_disp, minimo)
+      VALUES (p_material_id, p_local_id, p_lote, p_delta, 0);
+      RETURN;
+    EXCEPTION WHEN unique_violation THEN
+      -- concorrência: repete o loop
+    END;
+  END LOOP;
+END;
+$$;
+
+-- ---------------------------------------------------------------------
+-- 8) TRIGGERS DE NEGÓCIO
+-- ---------------------------------------------------------------------
+
+-- 8.1) Aplica movimentação de material no saldo
+CREATE OR REPLACE FUNCTION f_aplica_mov_material()
+RETURNS trigger
+LANGUAGE plpgsql
+AS $$
+BEGIN
+  -- Entrada e Transferência (lado destino) somam
+  IF NEW.operacao IN ('entrada','transferencia') AND NEW.destino_local_id IS NOT NULL THEN
+    PERFORM upsert_saldo(NEW.material_id, NEW.destino_local_id, NEW.lote, NEW.quantidade);
+  END IF;
+
+  -- Saída, Transferência (lado origem) e Consumo subtraem
+  IF NEW.operacao IN ('saida','transferencia','consumo') AND NEW.origem_local_id IS NOT NULL THEN
+    PERFORM upsert_saldo(NEW.material_id, NEW.origem_local_id, NEW.lote, - NEW.quantidade);
+  END IF;
+
+  RETURN NEW;
+END;
+$$;
+
+DROP TRIGGER IF EXISTS trg_aplica_mov_material ON movimentacao_material;
+CREATE TRIGGER trg_aplica_mov_material
+AFTER INSERT ON movimentacao_material
+FOR EACH ROW
+EXECUTE FUNCTION f_aplica_mov_material();
+
+-- 8.2) Valida devolução no mesmo local e atualiza status/posse de instrumentos
+CREATE OR REPLACE FUNCTION f_valida_atualiza_instrumento()
+RETURNS trigger
+LANGUAGE plpgsql
+AS $$
+DECLARE
+  last_checkout RECORD;
+BEGIN
+  IF NEW.operacao = 'devolucao' THEN
+    SELECT *
+      INTO last_checkout
+      FROM movimentacao_instrumento
+     WHERE instrumento_id = NEW.instrumento_id
+       AND operacao = 'retirada'
+     ORDER BY created_at DESC
+     LIMIT 1;
+
+    IF last_checkout IS NULL THEN
+      RAISE EXCEPTION 'Não há retirada anterior para este instrumento';
+    END IF;
+
+    -- Exigir devolução no mesmo local da retirada:
+    IF NEW.destino_local_id IS DISTINCT FROM last_checkout.origem_local_id THEN
+      RAISE EXCEPTION 'Devolução deve ocorrer no mesmo local da retirada';
+    END IF;
+
+    UPDATE instrumentos
+       SET status = 'disponivel',
+           local_atual_id = NEW.destino_local_id,
+           responsavel_atual_id = NULL,
+           updated_at = now()
+     WHERE id = NEW.instrumento_id;
+
+  ELSIF NEW.operacao = 'retirada' THEN
+    UPDATE instrumentos
+       SET status = 'em_uso',
+           local_atual_id = NEW.origem_local_id,
+           responsavel_atual_id = NEW.destinatario_id,
+           updated_at = now()
+     WHERE id = NEW.instrumento_id;
+
+  ELSIF NEW.operacao = 'transferencia' THEN
+    UPDATE instrumentos
+       SET local_atual_id = NEW.destino_local_id,
+           updated_at = now()
+     WHERE id = NEW.instrumento_id;
+  END IF;
+
+  RETURN NEW;
+END;
+$$;
+
+DROP TRIGGER IF EXISTS trg_valida_atualiza_instrumento ON movimentacao_instrumento;
+CREATE TRIGGER trg_valida_atualiza_instrumento
+BEFORE INSERT ON movimentacao_instrumento
+FOR EACH ROW
+EXECUTE FUNCTION f_valida_atualiza_instrumento();
+
+-- ---------------------------------------------------------------------
+-- 9) VIEWS DE ALERTAS
+-- ---------------------------------------------------------------------
+
+-- Estoque abaixo do mínimo
+CREATE OR REPLACE VIEW vw_alerta_estoque_minimo AS
+SELECT es.id, es.material_id, es.local_id, es.lote, es.qt_disp, es.minimo
+FROM estoque_saldos es
+WHERE es.qt_disp < es.minimo;
+
+-- Calibração a vencer em 30 dias (ajuste a janela conforme necessário)
+CREATE OR REPLACE VIEW vw_alerta_calibracao AS
+SELECT i.id AS instrumento_id, i.patrimonio, i.descricao, i.proxima_calibracao_em
+FROM instrumentos i
+WHERE i.ativo
+  AND i.proxima_calibracao_em IS NOT NULL
+  AND i.proxima_calibracao_em <= (CURRENT_DATE + INTERVAL '30 days');
+
+-- Pendências de devolução: última operação foi 'retirada'
+CREATE OR REPLACE VIEW vw_pendencias_devolucao AS
+WITH ult AS (
+  SELECT instrumento_id,
+         (ARRAY_AGG(operacao ORDER BY created_at DESC))[1] AS ult_op,
+         (ARRAY_AGG(created_at ORDER BY created_at DESC))[1] AS ult_dt
+  FROM movimentacao_instrumento
+  GROUP BY instrumento_id
+)
+SELECT i.id instrumento_id, i.patrimonio, i.descricao, u.ult_dt AS retirada_em
+FROM ult u
+JOIN instrumentos i ON i.id = u.instrumento_id
+WHERE u.ult_op = 'retirada';
+
+
+-- Unicidade por (base, nome) quando contexto='base'
+CREATE UNIQUE INDEX IF NOT EXISTS ux_locais_base_nome
+ON locais_fisicos (base_id, nome)
+WHERE contexto = 'base';
+
+-- Unicidade por (veiculo, nome) quando contexto='veiculo'
+CREATE UNIQUE INDEX IF NOT EXISTS ux_locais_veiculo_nome
+ON locais_fisicos (veiculo_id, nome)
+WHERE contexto = 'veiculo';
+
+-- ---------------------------------------------------------------------
+-- 10) SEED OPCIONAL (descomente e ajuste a senha_hash)
+-- ---------------------------------------------------------------------
+-- INSERT INTO users (nome, email, senha_hash, role, ativo)
+-- VALUES ('Admin', 'admin@demo.com', '<bcrypt_aqui>', 'admin', true)
+-- ON CONFLICT (email) DO NOTHING;
+
+COMMIT;
+
+-- =====================================================================
+-- FIM DO SCRIPT
+-- =====================================================================
