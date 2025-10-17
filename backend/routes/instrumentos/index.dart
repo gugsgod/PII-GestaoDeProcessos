@@ -19,10 +19,38 @@ Future<Response> onRequest(RequestContext context) async {
 Future<Response> _get(RequestContext context) async {
   final connection = context.read<Connection>();
 
+  try{
+    final result = await connection.execute(
+      'SELECT id, patrimonio, descricao, categoria, status, local_atual_id, responsavel_atual_id, proxima_calibracao_em, ativo, created_at, updated_at FROM instrumentos;'
+    )
+
+    final instrumentosList = result.map((row) {
+      final map = row.toColumnMap();
+      return {
+        'id': map['id'],
+        'patrimonio': map['patrimonio'],
+        'descricao': map['descricao'],
+        'categoria': map['categoria'],
+        'status': map['status'],
+        'local_atual_id': map['local_atual_id'],
+        'responsavel_atual_id': map['responsavel_atual_id'],
+        'proxima_calibracao_em': map['proxima_calibracao_em'],
+        'ativo': map['ativo'],
+        'created_at': map['created_at'],
+        'updated_at': map['updated_at'],
+      };
+    }).toList();
+
+    return Response.json(body: instrumentosList);
+
+  } catch(e, st){
+    print('Erro na consulta: $e\n$st');
+    return Response(statusCode: 500, body: 'Erro ao buscar instrumentos.');
+  }
 }
 
 Future<Response> _post(RequestContext context) async {
-  final connection = context.read<Connection>();
+   final connection = context.read<Connection>();
   final body = await context.request.json() as Map<String, dynamic>;
 
   final patrimonio = body['patrimonio'] as String?;
@@ -33,7 +61,7 @@ Future<Response> _post(RequestContext context) async {
       statusCode: 400,
       body: 'Os campos "patrimonio" e "descricao" são obrigatórios.',
     );
-  }
+   }
 
   try {
     final result = await connection.execute(
