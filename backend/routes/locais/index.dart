@@ -76,12 +76,13 @@ Future<Response> _list(RequestContext context) async {
   }
 }
 
+// routes/locais/index.dart (método _create)
 Future<Response> _create(RequestContext context) async {
   final conn = context.read<Connection>();
   try {
     final body = await readJson(context);
-    final contexto =
-        (body['contexto'] as String?)?.trim(); // 'base' | 'veiculo'
+
+    final contexto = (body['contexto'] as String?)?.trim(); // 'base' | 'veiculo'
     final baseId = body['base_id'];
     final veiculoId = body['veiculo_id'];
     final nome = (body['nome'] as String?)?.trim();
@@ -96,20 +97,53 @@ Future<Response> _create(RequestContext context) async {
       return jsonBad({'error': 'base_id é obrigatório quando contexto=base'});
     }
     if (contexto == 'veiculo' && (veiculoId is! int)) {
-      return jsonBad(
-          {'error': 'veiculo_id é obrigatório quando contexto=veiculo'});
+      return jsonBad({'error': 'veiculo_id é obrigatório quando contexto=veiculo'});
     }
 
+    // Tenta encontrar existente (find-or-create)
+    final existing = await conn.execute(
+      Sql.named('''
+        SELECT id, contexto::text AS contexto, base_id, veiculo_id, nome
+          FROM locais_fisicos
+         WHERE contexto = @ctx
+           AND nome = @nome
+           AND (
+                 (@ctx='base'   AND base_id=@bid AND veiculo_id IS NULL)
+              OR (@ctx='veiculo' AND veiculo_id=@vid AND base_id IS NULL)
+           )
+         LIMIT 1
+      '''),
+      parameters: {
+        'ctx': contexto,
+        'nome': nome,
+        'bid': contexto == 'base' ? baseId as int : null,
+        'vid': contexto == 'veiculo' ? veiculoId as int : null,
+      },
+    );
+
+    if (existing.isNotEmpty) {
+      final r = existing.first;
+      return jsonOk({
+        'id': r[0],
+        'contexto': r[1],
+        'base_id': r[2],
+        'veiculo_id': r[3],
+        'nome': r[4],
+        'already_existed': true,
+      });
+    }
+
+    // Cria se não existir
     final rows = await conn.execute(
       Sql.named('''
         INSERT INTO locais_fisicos (contexto, base_id, veiculo_id, nome)
-        VALUES (@contexto, @base_id, @veiculo_id, @nome)
+        VALUES (@ctx, @bid, @vid, @nome)
         RETURNING id, contexto::text AS contexto, base_id, veiculo_id, nome
       '''),
       parameters: {
-        'contexto': contexto,
-        'base_id': contexto == 'base' ? baseId as int : null,
-        'veiculo_id': contexto == 'veiculo' ? veiculoId as int : null,
+        'ctx': contexto,
+        'bid': contexto == 'base' ? baseId as int : null,
+        'vid': contexto == 'veiculo' ? veiculoId as int : null,
         'nome': nome,
       },
     );
@@ -122,6 +156,52 @@ Future<Response> _create(RequestContext context) async {
       'veiculo_id': r[3],
       'nome': r[4],
     });
+  } on PgException catch (e, st) {
+    // Violação de UNIQUE (concorrência): retorna o existente
+    if (e.message.contains('23505') == true){
+      try {
+        final dup = await conn.execute(
+          Sql.named('''
+            SELECT id, contexto::text AS contexto, base_id, veiculo_id, nome
+              FROM locais_fisicos
+             WHERE contexto = @ctx
+               AND nome = @nome
+               AND (
+                     (@ctx='base'   AND base_id=@bid AND veiculo_id IS NULL)
+                  OR (@ctx='veiculo' AND veiculo_id=@vid AND base_id IS NULL)
+               )
+             LIMIT 1
+          '''),
+          parameters: {
+            // usamos as MESMAS variáveis lidas no try:
+            'ctx': (await readJson(context))['contexto'], // se preferir, remova e guarde em variáveis superiores
+            'nome': (await readJson(context))['nome'],
+            'bid': (await readJson(context))['base_id'],
+            'vid': (await readJson(context))['veiculo_id'],
+          },
+        );
+        if (dup.isNotEmpty) {
+          final r = dup.first;
+          return Response.json(
+            statusCode: 200,
+            body: {
+              'id': r[0],
+              'contexto': r[1],
+              'base_id': r[2],
+              'veiculo_id': r[3],
+              'nome': r[4],
+              'already_existed': true,
+            },
+          );
+        }
+        // fallback
+        return Response.json(statusCode: 409, body: {'error': 'local já existe'});
+      } catch (_) {
+        return Response.json(statusCode: 409, body: {'error': 'local já existe'});
+      }
+    }
+    print('POST /locais pg error: $e\n$st');
+    return jsonServer({'error': 'internal'});
   } catch (e, st) {
     print('POST /locais error: $e\n$st');
     return jsonServer({'error': 'internal'});
