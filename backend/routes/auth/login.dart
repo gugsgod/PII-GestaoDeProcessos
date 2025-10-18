@@ -37,7 +37,7 @@ Future<Response> onRequest(RequestContext context) async {
     final rows = await conn.execute(
       Sql.named('''
         SELECT id_usuario, nome, email, funcao, senha
-        FROM usuario
+        FROM usuarios
         WHERE email = @email
         LIMIT 1
       '''),

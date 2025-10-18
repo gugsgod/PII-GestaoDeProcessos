@@ -22,7 +22,7 @@ Future<Response> _get(RequestContext context) async {
   try{
     final result = await connection.execute(
       'SELECT id, patrimonio, descricao, categoria, status, local_atual_id, responsavel_atual_id, proxima_calibracao_em, ativo, created_at, updated_at FROM instrumentos;'
-    )
+    );
 
     final instrumentosList = result.map((row) {
       final map = row.toColumnMap();
@@ -95,8 +95,8 @@ Future<Response> _post(RequestContext context) async {
       statusCode: 201,
       body: {'id': newId, 'message': 'Instrumento criado com sucesso!'},
     );
-  } on PostgreSQLException catch (e) {
-    if (e.code == '23505') { // unique_violation
+  } on PgException catch (e) {
+    if (e.message.contains('23505') == true) { // unique_violation
       return Response(
         statusCode: 409,
         body: 'Erro: Patrimônio "$patrimonio" já cadastrado.',
@@ -113,11 +113,9 @@ Future<Response> _post(RequestContext context) async {
 }
 
 Future<Response> _patch(RequestContext context) async {
-  final connection = context.read<Connection>();
-
+  return Response(statusCode: 501, body: 'Not Implemented');
 }
 
 Future<Response> _delete(RequestContext context) async {
-  final connection = context.read<Connection>();
-
+  return Response(statusCode: 501, body: 'Not Implemented');
 }

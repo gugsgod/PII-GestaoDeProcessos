@@ -21,7 +21,6 @@ Future<Response> _get(RequestContext context) async {
   try {
     // Postgres 3.x: execute() retorna um Result que é Iterable<Row>
     final result = await connection.execute(
-      'SELECT id_usuario, nome, funcao FROM usuario',
       'SELECT id_usuario, nome, email, funcao FROM usuario ORDER BY nome',
     );
 
@@ -29,9 +28,6 @@ Future<Response> _get(RequestContext context) async {
       // Acessa por índice (ou row.toColumnMap() se preferir por nome)
       final map = row.toColumnMap();
       return {
-        'id': row[0],
-        'nome': row[1],
-        'funcao': row[2],
         'id': map['id_usuario'],
         'nome': map['nome'],
         'email': map['email'],
@@ -89,8 +85,8 @@ Future<Response> _post(RequestContext context) async {
 
     final user = result.first.toColumnMap();
     return Response.json(statusCode: 201, body: user);
-  } on PostgreSQLException catch (e) {
-    if (e.code == '23505') {
+  } on PgException catch (e) {
+    if (e.message.contains('23505') == true) {
       return Response.json(statusCode: 409, body: {'error': 'E-mail já cadastrado.'});
     }
     rethrow;

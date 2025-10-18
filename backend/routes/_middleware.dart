@@ -26,7 +26,7 @@ Handler middleware(Handler handler) {
             port: port,
             database: db,
             username: user,
-            password: pass),
+            password: pass,),
         settings: const ConnectionSettings(sslMode: SslMode.require),
       );
     }
@@ -65,6 +65,6 @@ Handler middleware(Handler handler) {
     return res.copyWith(headers: {
       ...res.headers,
       ...corsHeaders,
-    });
+    },);
   };
 }

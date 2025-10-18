@@ -55,7 +55,7 @@ Future<Response> onRequest(RequestContext context) async {
     // 4) Inserir usuário (parametrizado) e retornar dados essenciais
     final rows = await conn.execute(
       Sql.named('''
-        INSERT INTO usuario (nome, email, funcao, senha)
+        INSERT INTO usuarios (nome, email, funcao, senha)
         VALUES (@nome, @email, @funcao, @hash)
         RETURNING id_usuario, nome, email, funcao
       '''),

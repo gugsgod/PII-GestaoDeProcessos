@@ -1,6 +1,7 @@
 import 'package:backend/api_utils.dart';
 import 'package:dart_frog/dart_frog.dart';
 import 'package:postgres/postgres.dart';
+import 'package:dart_jsonwebtoken/dart_jsonwebtoken.dart';
 
 class _BadRequest implements Exception {
   final String message;
@@ -12,12 +13,35 @@ class _NotFound implements Exception {
   _NotFound(this.message);
 }
 
+int? _userIdFromContext(RequestContext ctx) {
+  try {
+    final cfg = ctx.read<Map<String, String>>();
+    final secret = cfg['JWT_SECRET'] ?? '';
+    final auth = ctx.request.headers['authorization'];
+    if (auth == null || !auth.startsWith('Bearer ')) return null;
+    final token = auth.substring(7);
+    final jwt = JWT.verify(token, SecretKey(secret));
+    final payload = jwt.payload;
+    final sub = (payload is Map<String, dynamic>) ? payload['sub'] : null;
+    if (sub is int) return sub;
+    if (sub is num) return sub.toInt();
+    return int.tryParse(sub?.toString() ?? '');
+  } catch (_) {
+    return null;
+  }
+}
+
 Future<Response> onRequest(RequestContext context) async {
   if (context.request.method != HttpMethod.post) {
     return Response(statusCode: 405);
   }
+  final uid = _userIdFromContext(context);
+  if (uid == null) {
+    return jsonUnauthorized('token inválido');
+  }
 
-  final guard = await requireAdmin(context); // troque por requireAdmin se quiser
+  final guard =
+      await requireAdmin(context); // troque por requireAdmin se quiser
   if (guard != null) return guard;
 
   final conn = context.read<Connection>();
@@ -66,7 +90,7 @@ Future<Response> onRequest(RequestContext context) async {
         Sql.named('SELECT 1 FROM locais_fisicos WHERE id=@id'),
         parameters: {'id': destinoLocalId},
       );
-      if (ld.isEmpty) throw _NotFound('destino não encontrada');
+      if (ld.isEmpty) throw _NotFound('destino não encontrado');
 
       // debita origem (com lock)
       late final Result rows;
@@ -121,14 +145,13 @@ Future<Response> onRequest(RequestContext context) async {
       // log
       await _logMov(
         tx,
-        tipo: 'transferencia',
         materialId: materialId,
         origemLocalId: origemLocalId,
         destinoLocalId: destinoLocalId,
         lote: (lote?.isEmpty == true) ? null : lote,
         quantidade: quantidade,
         observacao: observacao,
-        usuarioId: null, // TODO: usar id do JWT se necessário
+        responsavelId: uid,
       );
 
       final rO = upOrigem.first;
@@ -222,28 +245,26 @@ Future<Result> _upsertDestinoComLote(
 
 Future<void> _logMov(
   dynamic tx, {
-  required String tipo,
   required int materialId,
   required num quantidade, int? origemLocalId,
   int? destinoLocalId,
   String? lote,
   String? observacao,
-  int? usuarioId,
+  int? responsavelId,
 }) async {
   await tx.execute(
     Sql.named('''
       INSERT INTO movimentacao_material
-      (tipo, material_id, origem_local_id, destino_local_id, lote, quantidade, usuario_id, observacao)
-      VALUES (@tipo, @mid, @origem, @destino, @lote, @qtd, @uid, @obs)
+      (operacao, material_id, origem_local_id, destino_local_id, lote, quantidade, responsavel_id, observacao)
+      VALUES ('transferencia', @mid, @origem, @destino, @lote, @qtd, @rid, @obs)
     '''),
     parameters: {
-      'tipo': tipo,
       'mid': materialId,
       'origem': origemLocalId,
       'destino': destinoLocalId,
       'lote': lote,
       'qtd': quantidade,
-      'uid': usuarioId,
+      'rid': responsavelId,
       'obs': observacao,
     },
   );
