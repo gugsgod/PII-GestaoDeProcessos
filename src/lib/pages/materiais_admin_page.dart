@@ -1,3 +1,7 @@
+import 'dart:convert';
+import 'package:http/http.dart' as http;
+
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import '../widgets/admin/home_admin/admin_drawer.dart';
 import 'animated_network_background.dart';
@@ -18,7 +22,19 @@ class MaterialItem {
     required this.estoqueMinimo,
     required this.status,
   });
+
+  factory MaterialItem.fromJson(Map<String, dynamic> json) {
+    return MaterialItem(
+      codigo: json['codigo'] ?? 'N/A',
+      nome: json['nome'] ?? 'Sem nome',
+      categoria: json['categoria'] ?? 'Sem categoria',
+      estoqueMinimo: json['estoqueMinimo'] ?? 0,
+      status: json['status'] ?? 'Inativo',
+    );
+  }
 }
+
+
 
 class MateriaisAdminPage extends StatefulWidget {
   MateriaisAdminPage({super.key});
@@ -31,13 +47,19 @@ class _MateriaisAdminPageState extends State<MateriaisAdminPage> {
   // Estado da página
   late DateTime _lastUpdated;
   String _selectedCategory = 'Todas as Categorias';
-
   final ScrollController _scrollController = ScrollController();
+
+  // Estados para controlar o carregamento e erros da API
+  bool _isLoading = true;
+  String? _erroMessage;
+  List<MaterialItem> _materiais = [];
+
 
   @override
   void initState() {
     super.initState();
     _lastUpdated = DateTime.now();
+    _featchMateriais();
   }
   
   @override
@@ -53,16 +75,33 @@ class _MateriaisAdminPageState extends State<MateriaisAdminPage> {
     });
   }
 
-  final List<MaterialItem> _materiais = [
-    MaterialItem(codigo: 'MAT001', nome: 'Cabo Ethernet Cat6', categoria: 'Cabos', estoqueMinimo: 100, status: 'Ativo'),
-    MaterialItem(codigo: 'MAT001', nome: 'Relé de Proteção 24V', categoria: 'Relés', estoqueMinimo: 100, status: 'Ativo'),
-    MaterialItem(codigo: 'MAT001', nome: 'Conector DB9 Macho', categoria: 'Conectores', estoqueMinimo: 100, status: 'Ativo'),
-    MaterialItem(codigo: 'MAT001', nome: 'Luva de Segurança Isolante', categoria: 'EPIs', estoqueMinimo: 100, status: 'Ativo'),
-    MaterialItem(codigo: 'MAT001', nome: 'Chave Philips 1/4', categoria: 'Ferramentas', estoqueMinimo: 100, status: 'Ativo'),
-    MaterialItem(codigo: 'MAT001', nome: 'Fusível 10A', categoria: 'Peças', estoqueMinimo: 100, status: 'Inativo'),
-    MaterialItem(codigo: 'MAT001', nome: 'Capacete de Segurança', categoria: 'EPIs', estoqueMinimo: 100, status: 'Ativo'),
-    MaterialItem(codigo: 'MAT001', nome: 'Óculos de Segurança', categoria: 'EPIs', estoqueMinimo: 100, status: 'Ativo'),
-  ];
+  // Função para buscar os dados no backend
+  Future<void> _featchMateriais() async {
+    setState(() {
+      _isLoading = true;
+      _erroMessage = null;
+    });
+
+    const String apiUrl = "";
+
+    try {
+      final response = await http.get(Uri.parse(apiUrl));
+    }
+
+  }
+
+  // final List<MaterialItem> _materiais = [
+  //   MaterialItem(codigo: 'MAT001', nome: 'Cabo Ethernet Cat6', categoria: 'Cabos', estoqueMinimo: 100, status: 'Ativo'),
+  //   MaterialItem(codigo: 'MAT001', nome: 'Relé de Proteção 24V', categoria: 'Relés', estoqueMinimo: 100, status: 'Ativo'),
+  //   MaterialItem(codigo: 'MAT001', nome: 'Conector DB9 Macho', categoria: 'Conectores', estoqueMinimo: 100, status: 'Ativo'),
+  //   MaterialItem(codigo: 'MAT001', nome: 'Luva de Segurança Isolante', categoria: 'EPIs', estoqueMinimo: 100, status: 'Ativo'),
+  //   MaterialItem(codigo: 'MAT001', nome: 'Chave Philips 1/4', categoria: 'Ferramentas', estoqueMinimo: 100, status: 'Ativo'),
+  //   MaterialItem(codigo: 'MAT001', nome: 'Fusível 10A', categoria: 'Peças', estoqueMinimo: 100, status: 'Inativo'),
+  //   MaterialItem(codigo: 'MAT001', nome: 'Capacete de Segurança', categoria: 'EPIs', estoqueMinimo: 100, status: 'Ativo'),
+  //   MaterialItem(codigo: 'MAT001', nome: 'Óculos de Segurança', categoria: 'EPIs', estoqueMinimo: 100, status: 'Ativo'),
+  // ];
+
+  
 
   @override
   Widget build(BuildContext context) {
