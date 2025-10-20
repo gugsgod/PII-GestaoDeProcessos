@@ -5,6 +5,7 @@ import 'pages/home_admin.dart';
 import 'pages/login_page.dart';
 import 'pages/materiais_admin_page.dart';
 import 'pages/instrumentos_admin_page.dart';
+import 'pages/historico_admin_page.dart';
 
 void main() {
   runApp(
@@ -42,6 +43,7 @@ class MyApp extends StatelessWidget {
         '/admin': (context) => const HomeAdminPage(),
         '/materiais': (context) => MateriaisAdminPage(),
         '/instrumentos': (context) => const InstrumentosAdminPage(),
+        '/historico': (context) => const HistoricoAdminPage(),
       },
     );
   }

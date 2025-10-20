@@ -84,7 +84,10 @@ class AdminDrawer extends StatelessWidget {
                 _buildDrawerItem(
                   icon: Icons.history_outlined,
                   text: 'Histórico de Alertas',
-                  onTap: () {},
+                  onTap: () {
+                    Navigator.pop(context);
+                    Navigator.pushReplacementNamed(context, '/historico');
+                  },
                 ),
                 _buildDrawerItem(
                   icon: Icons.people_outline,
