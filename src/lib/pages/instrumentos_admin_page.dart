@@ -45,6 +45,7 @@ class _InstrumentosAdminPageState extends State<InstrumentosAdminPage>{
   late DateTime _lastUpdated;
   final ScrollController _scrollController = ScrollController();
   String _selectedCategory = "Todas as Categorias";
+  final TextEditingController _searchController = TextEditingController();
 
   @override
   void initState() {
@@ -55,6 +56,7 @@ class _InstrumentosAdminPageState extends State<InstrumentosAdminPage>{
   @override
   void dispose() {
     _scrollController.dispose();
+    _searchController.dispose();
     super.dispose();
   }
 
@@ -63,6 +65,10 @@ class _InstrumentosAdminPageState extends State<InstrumentosAdminPage>{
       _lastUpdated = DateTime.now();
       // Aqui você pode adicionar a lógica para atualizar os dados reais
     });
+  }
+
+  void _onSearchChanged(String query) {
+    print("Buscando por: $query");
   }
 
   final List<Instrument> _instruments = [
@@ -160,6 +166,8 @@ class _InstrumentosAdminPageState extends State<InstrumentosAdminPage>{
 
               // Filtro de busca
               FilterBar(
+                searchController: _searchController,
+                onSearchChanged: _onSearchChanged,
                 selectedCategory: _selectedCategory,
                 onCategoryChanged: (newValue) {
                   setState(() {

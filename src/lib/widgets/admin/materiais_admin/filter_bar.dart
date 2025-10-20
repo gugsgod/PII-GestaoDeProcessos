@@ -1,13 +1,23 @@
 import 'package:flutter/material.dart';
 
 class FilterBar extends StatelessWidget {
+  final TextEditingController searchController;
   final String selectedCategory;
   final ValueChanged<String?> onCategoryChanged;
+  final ValueChanged<String> onSearchChanged;
+
+  // const FilterBar({
+  //   super.key,
+  //   required this.selectedCategory,
+  //   required this.onCategoryChanged, required void Function(String query) onSearchChanged, required TextEditingController searchController,
+  // });
 
   const FilterBar({
     super.key,
+    required this.searchController,
     required this.selectedCategory,
     required this.onCategoryChanged,
+    required this.onSearchChanged,
   });
 
   @override
