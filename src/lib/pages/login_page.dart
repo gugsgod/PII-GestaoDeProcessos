@@ -17,12 +17,14 @@ class _LoginPageState extends State<LoginPage> {
   final _emailController = TextEditingController();
   final _passwordController = TextEditingController();
   bool _isLoading = false;
+  String? _successMessage; // <-- Controla a mensagem de sucesso
   String? _error;
 
   Future<void> _onEntrar() async {
     setState(() {
       _isLoading = true;
       _error = null;
+      _successMessage = null; // <-- Reseta a mensagem de sucesso
     });
 
     try {
@@ -34,17 +36,44 @@ class _LoginPageState extends State<LoginPage> {
       if (!mounted) return;
 
       if (result.ok && result.token != null) {
+        // --- LÓGICA DE SUCESSO CORRIGIDA (ORDEM INVERTIDA) ---
+
+        // 1. Atualiza o estado para mostrar a mensagem de sucesso
+        setState(() {
+          _isLoading = false;
+          _successMessage = 'Login feito com sucesso!';
+        });
+
+        // 2. Espera 2 segundos (o usuário VÊ a mensagem)
+        // Usamos um future.delayed aqui, que funciona bem após um setState
+        await Future.delayed(const Duration(seconds: 2));
+
+        if (!mounted) return;
+
+        // 3. SÓ AGORA, salva o token (o que pode disparar o listener global)
         final auth = context.read<AuthStore>();
         await auth.setToken(result.token!);
-        Navigator.pushReplacementNamed(context, '/');
+
+        // 4. Navega (garante a navegação caso o listener não o faça)
+        if (mounted) {
+          Navigator.pushReplacementNamed(context, '/');
+        }
       } else {
-        setState(() => _error = result.error ?? 'Erro ao entrar.');
+        // A API respondeu, mas informou um erro (ex: 401 - Não autorizado)
+        setState(() {
+          _isLoading = false;
+          _error = result.error ?? 'Usuário ou senha inválidos.';
+        });
       }
     } catch (e) {
+      // A API não foi alcançada (falha de rede, timeout, etc.)
       if (!mounted) return;
-      setState(() => _error = 'Falha inesperada: $e');
-    } finally {
-      if (mounted) setState(() => _isLoading = false);
+      // Log do erro para debug
+      print('Falha na conexão durante o login: $e');
+      setState(() {
+        _isLoading = false;
+        _error = 'Falha na conexão. Verifique sua internet e tente novamente.';
+      });
     }
   }
 
@@ -185,12 +214,78 @@ class _LoginPageState extends State<LoginPage> {
                         ),
                       ),
                     ),
+
+                    // --- WIDGET DE SUCESSO ADICIONADO ---
+                    if (_successMessage != null)
+                      Padding(
+                        padding: const EdgeInsets.only(top: 24.0),
+                        child: Container(
+                          padding: const EdgeInsets.all(12),
+                          decoration: BoxDecoration(
+                            color: Colors.green.shade100,
+                            borderRadius: BorderRadius.circular(8),
+                            border: Border.all(color: Colors.green.shade300),
+                          ),
+                          child: Row(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Icon(Icons.check_circle_outline,
+                                  color: Colors.green.shade700, size: 20),
+                              const SizedBox(width: 12),
+                              Expanded(
+                                child: Text(
+                                  _successMessage!,
+                                  style: TextStyle(
+                                    color: Colors.green.shade900,
+                                    fontWeight: FontWeight.w500,
+                                  ),
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ),
+                    // --- FIM DO WIDGET DE SUCESSO ---
+
+                    // --- WIDGET DE ERRO ADICIONADO ---
+                    if (_error != null)
+                      Padding(
+                        padding: const EdgeInsets.only(
+                            top: 24.0), // Espaço acima da msg de erro
+                        child: Container(
+                          padding: const EdgeInsets.all(12),
+                          decoration: BoxDecoration(
+                            color: Colors.red.shade100,
+                            borderRadius: BorderRadius.circular(8),
+                            border: Border.all(color: Colors.red.shade300),
+                          ),
+                          child: Row(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Icon(Icons.error_outline,
+                                  color: Colors.red.shade700, size: 20),
+                              const SizedBox(width: 12),
+                              Expanded(
+                                child: Text(
+                                  _error!,
+                                  style: TextStyle(
+                                    color: Colors.red.shade900,
+                                    fontWeight: FontWeight.w500,
+                                  ),
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ),
+                    // --- FIM DO WIDGET DE ERRO ---
+
                     const SizedBox(height: 30),
 
                     // botao de entrar
-                    // botao de entrar
                     ElevatedButton(
                       style: ElevatedButton.styleFrom(
+                        // A cor agora é estática, não muda mais com o sucesso
                         backgroundColor: const Color(0xFF002776),
                         padding: const EdgeInsets.symmetric(
                           vertical: 17,
@@ -198,7 +293,10 @@ class _LoginPageState extends State<LoginPage> {
                         ),
                         overlayColor: Colors.black.withOpacity(0.1),
                       ),
-                      onPressed: _isLoading ? null : _onEntrar,
+                      // Desabilita se estiver carregando OU se a msg de sucesso estiver visível
+                      onPressed: (_isLoading || _successMessage != null)
+                          ? null
+                          : _onEntrar,
                       child: _isLoading
                           ? const SizedBox(
                               height: 20,
@@ -208,6 +306,7 @@ class _LoginPageState extends State<LoginPage> {
                                 strokeWidth: 2,
                               ),
                             )
+                          // Remove a lógica do ícone de check daqui
                           : const Text(
                               'Entrar',
                               style: TextStyle(
@@ -226,3 +325,4 @@ class _LoginPageState extends State<LoginPage> {
     );
   }
 }
+

@@ -3,24 +3,102 @@ import 'package:src/widgets/admin/home_admin/update_status_bar.dart';
 import '../widgets/admin/home_admin/admin_drawer.dart';
 import 'animated_network_background.dart';
 import 'package:intl/intl.dart';
+import 'dart:convert';
+import 'package:http/http.dart' as http;
 
-class AlertItem {
-  final String titulo;
-  final String subtitulo;
-  final String codigo;
-  final DateTime data;
-  final IconData icon;
-  final Color iconColor;
+// Modelo para o objeto "material" aninhado
+class MaterialInfo {
+  final String? codSap;
+  final String? descricao;
+  final String? unidade;
 
-  AlertItem({
-    required this.titulo,
-    required this.subtitulo,
-    required this.codigo,
-    required this.data,
-    this.icon = Icons.warning_amber_rounded,
-    this.iconColor = const Color(0xFF6466F1),
-  });
+  MaterialInfo({this.codSap, this.descricao, this.unidade});
+
+  factory MaterialInfo.fromJson(Map<String, dynamic> json) {
+    return MaterialInfo(
+      codSap: json['cod_sap'] as String?,
+      descricao: json['descricao'] as String?,
+      unidade: json['unidade'] as String?,
+    );
+  }
 }
+
+// Modelo principal da movimentação
+class Movimentacao {
+  final int id;
+  final String? operacao;
+  final int materialId;
+  final int? origemLocalId;
+  final int? destinoLocalId;
+  final String? lote;
+  final double? quantidade;
+  final int? responsavelId;
+  final String? observacao;
+  final DateTime createdAt;
+  final MaterialInfo material;
+
+  Movimentacao({
+    required this.id,
+    this.operacao,
+    required this.materialId,
+    this.origemLocalId,
+    this.destinoLocalId,
+    this.lote,
+    this.quantidade,
+    this.responsavelId,
+    this.observacao,
+    required this.createdAt,
+    required this.material,
+  });
+
+  factory Movimentacao.fromJson(Map<String, dynamic> json) {
+    return Movimentacao(
+      id: json['id'] as int,
+      operacao: json['operacao'] as String?,
+      materialId: json['material_id'] as int,
+      origemLocalId: json['origem_local_id'] as int?,
+      destinoLocalId: json['destino_local_id'] as int?,
+      lote: json['lote'] as String?,
+      quantidade: json['quantidade'] as double?,
+      responsavelId: json['responsavel_id'] as int?,
+      observacao: json['observacao'] as String?,
+      createdAt: DateTime.parse(json['created_at'] as String),
+      material: MaterialInfo.fromJson(json['material'] as Map<String, dynamic>),
+    );
+  }
+}
+
+// Classe para encapsular a resposta paginada da API
+class MovimentacaoResponse {
+  final int page;
+  final int limit;
+  final int total;
+  final List<Movimentacao> data;
+
+  MovimentacaoResponse({
+    required this.page,
+    required this.limit,
+    required this.total,
+    required this.data,
+  });
+
+  factory MovimentacaoResponse.fromJson(Map<String, dynamic> json) {
+    final List<dynamic> dataList = json['data'] as List;
+    final List<Movimentacao> movimentacoes =
+        dataList.map((item) => Movimentacao.fromJson(item)).toList();
+
+    return MovimentacaoResponse(
+      page: json['page'] as int,
+      limit: json['limit'] as int,
+      total: json['total'] as int,
+      data: movimentacoes,
+    );
+  }
+}
+
+// -----------------------------------------------------------------
+// Widget da Página
+// -----------------------------------------------------------------
 
 class HistoricoAdminPage extends StatefulWidget {
   const HistoricoAdminPage({Key? key}) : super(key: key);
@@ -29,29 +107,22 @@ class HistoricoAdminPage extends StatefulWidget {
   _HistoricoAdminPageState createState() => _HistoricoAdminPageState();
 }
 
-
-
 class _HistoricoAdminPageState extends State<HistoricoAdminPage> {
-
   late DateTime _lastUpdated;
   final ScrollController _scrollController = ScrollController();
   final TextEditingController _searchController = TextEditingController();
 
-  final List<AlertItem> _alerts = [
-    AlertItem(titulo: 'Calibração Vencida', subtitulo: 'Detector de Gás Portátil', codigo: 'INSTR001', data: DateTime(2025, 1, 14)),
-    AlertItem(titulo: 'Calibração Vencida', subtitulo: 'Multímetro Digital Fluke', codigo: 'INSTR001', data: DateTime(2025, 1, 14)),
-    AlertItem(titulo: 'Calibração Vencida', subtitulo: 'Detector de Gás Portátil', codigo: 'INSTR001', data: DateTime(2025, 1, 14)),
-    AlertItem(titulo: 'Calibração Vencida', subtitulo: 'Multímetro Digital Fluke', codigo: 'INSTR001', data: DateTime(2025, 1, 14)),
-    AlertItem(titulo: 'Calibração Vencida', subtitulo: 'Megôhmetro 5kV', codigo: 'INSTR001', data: DateTime(2025, 1, 14)),
-    AlertItem(titulo: 'Calibração Vencida', subtitulo: 'Detector de Gás Portátil', codigo: 'INSTR001', data: DateTime(2025, 1, 14)),
-    AlertItem(titulo: 'Calibração Vencida', subtitulo: 'Multímetro Digital Fluke', codigo: 'INSTR001', data: DateTime(2025, 1, 14)),
-    AlertItem(titulo: 'Estoque Baixo', subtitulo: 'Conector DB9 Macho', codigo: 'MAT003', data: DateTime(2025, 1, 14), icon: Icons.inventory_2_outlined, iconColor: Colors.orange.shade700),
-  ];
+  // Future para os dados (usado pelo FutureBuilder)
+  late Future<List<Movimentacao>> _movimentacoesFuture;
+  
+  // A instância do MovimentacaoService foi removida.
 
   @override
   void initState() {
     super.initState();
     _lastUpdated = DateTime.now();
+    // Inicia a busca dos dados chamando a função local
+    _movimentacoesFuture = fetchHistorico();
   }
 
   @override
@@ -61,10 +132,80 @@ class _HistoricoAdminPageState extends State<HistoricoAdminPage> {
     super.dispose();
   }
 
+  // -----------------------------------------------------------------
+  // Lógica de API 
+  // -----------------------------------------------------------------
+
+  Future<String> _getAuthToken() async {
+    return 'SEU_TOKEN_JWT_AQUI';
+  }
+
+  /// Busca o histórico de movimentações na API.
+  Future<List<Movimentacao>> fetchHistorico({
+    int? materialId,
+    int? localId,
+    String? operacao,
+    String? lote,
+    int page = 1,
+    int limit = 20, // Padrão de 20 itens por página
+  }) async {
+    final token = await _getAuthToken();
+    
+    const String apiHost = 'http://localhost:8080';
+
+    // Constrói os parâmetros de query
+    final queryParams = <String, String>{
+      'page': page.toString(),
+      'limit': limit.toString(),
+      if (materialId != null) 'material_id': materialId.toString(),
+      if (localId != null) 'local_id': localId.toString(),
+      if (operacao != null && operacao.isNotEmpty) 'operacao': operacao,
+      if (lote != null && lote.isNotEmpty) 'lote': lote,
+    };
+
+    final url = Uri.parse('$apiHost/movimentacoes').replace(
+      queryParameters: queryParams.isEmpty ? null : queryParams,
+    );
+
+    try {
+      final response = await http.get(
+        url,
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': 'Bearer $token',
+        },
+      );
+
+      if (response.statusCode == 200) {
+        // Decodifica o corpo da resposta
+        final Map<String, dynamic> jsonResponse = 
+            jsonDecode(utf8.decode(response.bodyBytes)) as Map<String, dynamic>;
+        
+        // Usa o modelo MovimentacaoResponse para parsear
+        final movimentacaoResponse = MovimentacaoResponse.fromJson(jsonResponse);
+        
+        // Retorna apenas a lista de dados
+        return movimentacaoResponse.data;
+      } else {
+        // Tratar outros status codes (401, 403, 500, etc.)
+        throw Exception('Falha ao carregar movimentações: ${response.statusCode}');
+      }
+    } catch (e) {
+      // Tratar erros de conexão, timeout, etc.
+      print('Erro na API fetchHistorico: $e');
+      throw Exception('Falha ao conectar ao servidor: $e');
+    }
+  }
+
+  // -----------------------------------------------------------------
+  // Métodos do Widget
+  // -----------------------------------------------------------------
+
   void _atualizarDados() {
     setState(() {
       _lastUpdated = DateTime.now();
-      // Aqui você pode adicionar a lógica para atualizar os dados reais
+      // Atualiza o future para buscar novos dados
+      _movimentacoesFuture = fetchHistorico();
     });
   }
 
@@ -74,10 +215,9 @@ class _HistoricoAdminPageState extends State<HistoricoAdminPage> {
 
   @override
   Widget build(BuildContext context) {
-
     const Color primaryColor = Color(0xFF080023); //cor de fundo
-    const Color secondaryColor = Color.fromARGB( 255, 0, 14, 92,); //cor do app bar
-    final isDesktop = MediaQuery.of(context).size.width > 768; // define se a tela é grande o suficiente p duas colunas
+    const Color secondaryColor = Color.fromARGB(255,0,14,92); 
+    final isDesktop = MediaQuery.of(context).size.width > 768;
 
     return Scaffold(
       backgroundColor: primaryColor,
@@ -85,8 +225,10 @@ class _HistoricoAdminPageState extends State<HistoricoAdminPage> {
         toolbarHeight: 80,
         backgroundColor: secondaryColor,
         elevation: 0,
-        flexibleSpace: const AnimatedNetworkBackground(numberOfParticles: 35, maxDistance: 50),
-        title: const Text("Histórico de Alertas", style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
+        flexibleSpace:
+            const AnimatedNetworkBackground(numberOfParticles: 35, maxDistance: 50),
+        title: const Text("Histórico de Movimentações", // Título atualizado
+            style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
         iconTheme: const IconThemeData(color: Colors.white),
         actions: [
           Padding(
@@ -95,58 +237,43 @@ class _HistoricoAdminPageState extends State<HistoricoAdminPage> {
           )
         ],
       ),
-
-      // Chamada do wigdet para o Drawer
       drawer: AdminDrawer(
         primaryColor: primaryColor,
         secondaryColor: secondaryColor,
       ),
-
       body: SingleChildScrollView(
         child: Padding(
           padding: const EdgeInsets.all(24.0),
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              // Chamada do widget para a barra de status
               UpdateStatusBar(
                 isDesktop: isDesktop,
                 lastUpdated: _lastUpdated,
                 onUpdate: _atualizarDados,
               ),
               const SizedBox(height: 48),
-
-              // Cabeçalho da seção de histórico
               const Text(
-                "Histórico de Alertas",
+                "Histórico de Alertas", 
                 style: TextStyle(
                   color: Colors.white,
                   fontSize: 32,
                   fontWeight: FontWeight.bold,
                 ),
               ),
-
               const SizedBox(height: 8),
               const Text(
-                "Visão geral das notificações do sistema",
+                "Visão geral das entradas, saídas e transferências", 
                 style: TextStyle(color: Colors.white70, fontSize: 16),
               ),
-
               const SizedBox(height: 24),
-
-              // Tabela de histórico de alertas
               Container(
                 width: double.infinity,
                 decoration: BoxDecoration(
                   color: Color.fromARGB(209, 255, 255, 255),
                   borderRadius: BorderRadius.circular(16),
                 ),
-                child: Column(
-                  children: [
-                    // Implemente a tabela de histórico aqui
-                    _buildAlertsTable(),
-                  ],
-                ),
+                child: _buildMovimentacoesList(), // Chama o FutureBuilder
               )
             ],
           ),
@@ -156,36 +283,79 @@ class _HistoricoAdminPageState extends State<HistoricoAdminPage> {
   }
 
   // ------------------- Widgets da Tabela de Histórico ------------------ //
-  Widget _buildAlertsTable() {
-    return Column(
-      children: [
-        _buildTableHeader(),
-        const Divider(color: Color.fromARGB(59, 102, 102, 102), height: 1),
-        SizedBox(
-          height: 600, // Altura fixa para a lista rolável
-          child: ListView.separated(
-            controller: _scrollController,
-            padding: const EdgeInsets.all(16.0),
-            itemCount: _alerts.length,
-            separatorBuilder: (context, index) => const SizedBox(height: 12),
-            itemBuilder: (context, index) {
-              return _buildAlertRow(_alerts[index]);
-            },
-          ),
-        ),
-      ],
+
+  /// Constrói a lista usando um FutureBuilder
+  Widget _buildMovimentacoesList() {
+    return FutureBuilder<List<Movimentacao>>(
+      future: _movimentacoesFuture,
+      builder: (context, snapshot) {
+        if (snapshot.connectionState == ConnectionState.waiting) {
+          return const Center(
+            child: Padding(
+              padding: EdgeInsets.all(48.0),
+              child: CircularProgressIndicator(),
+            ),
+          );
+        }
+
+        if (snapshot.hasError) {
+          return Center(
+            child: Padding(
+              padding: const EdgeInsets.all(24.0),
+              child: Text(
+                'Erro ao buscar dados: ${snapshot.error}',
+                style: const TextStyle(color: Colors.red),
+              ),
+            ),
+          );
+        }
+
+        if (!snapshot.hasData || snapshot.data!.isEmpty) {
+          return const Center(
+            child: Padding(
+              padding: EdgeInsets.all(24.0),
+              child: Text(
+                'Nenhuma movimentação encontrada.',
+                style: TextStyle(color: Colors.black54),
+              ),
+            ),
+          );
+        }
+
+        // Dados carregados com sucesso
+        final movimentacoes = snapshot.data!;
+
+        return Column(
+          children: [
+            _buildTableHeader(movimentacoes.length),
+            const Divider(color: Color.fromARGB(59, 102, 102, 102), height: 1),
+            SizedBox(
+              height: 600, // Altura fixa para a lista rolável
+              child: ListView.separated(
+                controller: _scrollController,
+                padding: const EdgeInsets.all(16.0),
+                itemCount: movimentacoes.length,
+                separatorBuilder: (context, index) => const SizedBox(height: 12),
+                itemBuilder: (context, index) {
+                  return _buildMovimentacaoRow(movimentacoes[index]);
+                },
+              ),
+            ),
+          ],
+        );
+      },
     );
   }
 
   /// Constrói o cabeçalho da tabela.
-  Widget _buildTableHeader() {
+  Widget _buildTableHeader(int count) {
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 24.0, vertical: 16.0),
       child: Row(
         mainAxisAlignment: MainAxisAlignment.spaceBetween,
         children: [
           const Text(
-            'Todos os Alertas',
+            'Últimas Movimentações',
             style: TextStyle(
               fontWeight: FontWeight.bold,
               color: Colors.black87,
@@ -199,7 +369,7 @@ class _HistoricoAdminPageState extends State<HistoricoAdminPage> {
               borderRadius: BorderRadius.circular(16),
             ),
             child: Text(
-              _alerts.length.toString(),
+              count.toString(),
               style: TextStyle(
                 fontWeight: FontWeight.bold,
                 color: Colors.grey.shade800,
@@ -211,8 +381,35 @@ class _HistoricoAdminPageState extends State<HistoricoAdminPage> {
     );
   }
 
-  /// Constrói uma única linha da tabela de alertas.
-  Widget _buildAlertRow(AlertItem item) {
+  /// Constrói uma única linha da tabela de movimentações.
+  Widget _buildMovimentacaoRow(Movimentacao item) {
+    // Define ícone e cor com base na operação
+    final IconData icon;
+    final Color iconColor;
+    final String operacaoLabel;
+
+    switch (item.operacao) {
+      case 'entrada':
+        icon = Icons.arrow_downward_rounded;
+        iconColor = Colors.green.shade700;
+        operacaoLabel = 'Entrada';
+        break;
+      case 'saida':
+        icon = Icons.arrow_upward_rounded;
+        iconColor = Colors.red.shade700;
+        operacaoLabel = 'Saída';
+        break;
+      case 'transferencia':
+        icon = Icons.swap_horiz_rounded;
+        iconColor = Colors.blue.shade700;
+        operacaoLabel = 'Transferência';
+        break;
+      default:
+        icon = Icons.help_outline_rounded;
+        iconColor = Colors.grey.shade700;
+        operacaoLabel = item.operacao ?? 'Desconhecida';
+    }
+
     return Container(
       padding: const EdgeInsets.all(16.0),
       decoration: BoxDecoration(
@@ -229,14 +426,14 @@ class _HistoricoAdminPageState extends State<HistoricoAdminPage> {
       ),
       child: Row(
         children: [
-          Icon(item.icon, color: item.iconColor, size: 28),
+          Icon(icon, color: iconColor, size: 28),
           const SizedBox(width: 16),
           Expanded(
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Text(
-                  item.titulo,
+                  item.material.descricao ?? 'Material Desconhecido',
                   style: const TextStyle(
                     fontWeight: FontWeight.bold,
                     color: Colors.black87,
@@ -244,23 +441,53 @@ class _HistoricoAdminPageState extends State<HistoricoAdminPage> {
                   ),
                 ),
                 const SizedBox(height: 4),
-                Row(
+                // Mostra origem e destino
+                if (item.operacao == 'entrada')
+                  Text(
+                    'Destino ID: ${item.destinoLocalId ?? 'N/A'}',
+                    style: const TextStyle(color: Colors.black54, fontSize: 13),
+                  ),
+                if (item.operacao == 'saida')
+                  Text(
+                    'Origem ID: ${item.origemLocalId ?? 'N/A'}',
+                    style: const TextStyle(color: Colors.black54, fontSize: 13),
+                  ),
+                if (item.operacao == 'transferencia')
+                  Text(
+                    'De ID: ${item.origemLocalId ?? 'N/A'} -> Para ID: ${item.destinoLocalId ?? 'N/A'}',
+                    style: const TextStyle(color: Colors.black54, fontSize: 13),
+                  ),
+                const SizedBox(height: 4),
+                // Mostra tags (Lote, Responsável)
+                Wrap(
+                  spacing: 8.0,
+                  runSpacing: 4.0,
                   children: [
-                    Text(
-                      item.subtitulo,
-                      style: const TextStyle(color: Colors.black54, fontSize: 13),
-                    ),
-                    const SizedBox(width: 8),
-                    _AlertTag(code: item.codigo),
+                    _MovTag(label: operacaoLabel, color: iconColor),
+                    if (item.lote != null) _MovTag(label: 'Lote: ${item.lote}'),
+                    if (item.responsavelId != null)
+                      _MovTag(label: 'Por ID: ${item.responsavelId}'),
                   ],
                 ),
               ],
             ),
           ),
           const SizedBox(width: 16),
-          Text(
-            DateFormat('dd/MM/yyyy').format(item.data),
-            style: const TextStyle(color: Colors.black54, fontSize: 14),
+          // Mostra Quantidade e Data
+          Column(
+            crossAxisAlignment: CrossAxisAlignment.end,
+            children: [
+              Text(
+                'Qtd: ${item.quantidade ?? 0}',
+                style:
+                    const TextStyle(fontWeight: FontWeight.bold, fontSize: 14),
+              ),
+              const SizedBox(height: 4),
+              Text(
+                DateFormat('dd/MM/yy HH:mm').format(item.createdAt.toLocal()),
+                style: const TextStyle(color: Colors.black54, fontSize: 12),
+              ),
+            ],
           ),
         ],
       ),
@@ -268,28 +495,33 @@ class _HistoricoAdminPageState extends State<HistoricoAdminPage> {
   }
 }
 
-/// Widget para a tag cinza com o código do item.
-class _AlertTag extends StatelessWidget {
-  final String code;
-  const _AlertTag({required this.code});
+/// Widget para a tag de informação.
+class _MovTag extends StatelessWidget {
+  final String label;
+  final Color? color;
+
+  const _MovTag({required this.label, this.color});
 
   @override
   Widget build(BuildContext context) {
+    final bgColor = color?.withOpacity(0.1) ?? Colors.grey.shade200;
+    final textColor = color ?? Colors.grey.shade700;
+
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
       decoration: BoxDecoration(
-        color: Colors.grey.shade200,
+        color: bgColor,
         borderRadius: BorderRadius.circular(6),
       ),
       child: Text(
-        code,
+        label,
         style: TextStyle(
-          color: Colors.grey.shade700,
+          color: textColor,
           fontWeight: FontWeight.bold,
           fontSize: 11,
         ),
       ),
     );
   }
-
 }
+
