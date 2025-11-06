@@ -104,7 +104,7 @@ Future<Response> _post(RequestContext context) async {
     }
     return Response(
       statusCode: 500,
-      body: 'Erro no banco de dados ao inserir instrumento.',
+      body: 'Erro no banco de dados ao inserir instrumento.$e',
     );
   } catch (e, st) {
     print('Erro inesperado na inserção: $e\n$st');
