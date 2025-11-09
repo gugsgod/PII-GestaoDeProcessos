@@ -1,8 +1,12 @@
 import 'dart:convert';
 import 'package:dart_frog/dart_frog.dart';
 import 'package:postgres/postgres.dart';
+import 'package:backend/api_utils.dart';
 
 Future<Response> onRequest(RequestContext context) async {
+  
+  
+  
   switch (context.request.method) {
     case HttpMethod.get:
       return _get(context);
@@ -18,6 +22,9 @@ Future<Response> onRequest(RequestContext context) async {
 }
 
 Future<Response> _get(RequestContext context) async {
+  final guard = await requireAdmin(context);
+  if (guard != null) return guard;
+  
   final connection = context.read<Connection>();
 
   try{
