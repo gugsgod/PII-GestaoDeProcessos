@@ -1,10 +1,15 @@
+// lib/pages/movimentacoes.dart
+
+import 'dart:convert';
 import 'package:flutter/material.dart';
+import 'package:intl/intl.dart';
+import 'package:http/http.dart' as http;
+import 'package:provider/provider.dart';
+
+import 'package:src/auth/auth_store.dart';
 import 'package:src/widgets/admin/home_admin/update_status_bar.dart';
 import '../widgets/admin/home_admin/admin_drawer.dart';
 import 'animated_network_background.dart';
-import 'package:intl/intl.dart';
-import 'dart:convert';
-import 'package:http/http.dart' as http;
 
 // ==================== MODELOS ==================== //
 
@@ -17,9 +22,9 @@ class MaterialInfo {
 
   factory MaterialInfo.fromJson(Map<String, dynamic> json) {
     return MaterialInfo(
-      codSap: json['cod_sap'] as String?,
-      descricao: json['descricao'] as String?,
-      unidade: json['unidade'] as String?,
+      codSap: json['cod_sap']?.toString(),
+      descricao: json['descricao']?.toString(),
+      unidade: json['unidade']?.toString(),
     );
   }
 }
@@ -63,7 +68,9 @@ class Movimentacao {
       responsavelId: json['responsavel_id'] as int?,
       observacao: json['observacao'] as String?,
       createdAt: DateTime.parse(json['created_at'] as String),
-      material: MaterialInfo.fromJson(json['material'] as Map<String, dynamic>),
+      material: MaterialInfo.fromJson(
+        json['material'] as Map<String, dynamic>,
+      ),
     );
   }
 }
@@ -82,15 +89,15 @@ class MovimentacaoResponse {
   });
 
   factory MovimentacaoResponse.fromJson(Map<String, dynamic> json) {
-    final List<dynamic> dataList = json['data'] as List;
-    final List<Movimentacao> movimentacoes =
-        dataList.map((item) => Movimentacao.fromJson(item)).toList();
+    final list = (json['data'] as List)
+        .map((item) => Movimentacao.fromJson(item as Map<String, dynamic>))
+        .toList();
 
     return MovimentacaoResponse(
       page: json['page'] as int,
       limit: json['limit'] as int,
       total: json['total'] as int,
-      data: movimentacoes,
+      data: list,
     );
   }
 }
@@ -101,20 +108,28 @@ class MovimentacoesRecentesPage extends StatefulWidget {
   const MovimentacoesRecentesPage({Key? key}) : super(key: key);
 
   @override
-  State<MovimentacoesRecentesPage> createState() => _MovimentacoesRecentesPageState();
+  State<MovimentacoesRecentesPage> createState() =>
+      _MovimentacoesRecentesPageState();
 }
 
-class _MovimentacoesRecentesPageState extends State<MovimentacoesRecentesPage> {
+class _MovimentacoesRecentesPageState
+    extends State<MovimentacoesRecentesPage> {
   late DateTime _lastUpdated;
-  late Future<List<Movimentacao>> _movimentacoesFuture;
+  Future<List<Movimentacao>>? _movimentacoesFuture;
 
   final ScrollController _scrollController = ScrollController();
+
+  static const String _apiHost = 'http://localhost:8080'; // mesmo do backend
 
   @override
   void initState() {
     super.initState();
     _lastUpdated = DateTime.now();
-    _movimentacoesFuture = fetchHistorico();
+
+    // Espera o primeiro build para ter acesso ao Provider com segurança
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _carregarMovimentacoes();
+    });
   }
 
   @override
@@ -125,46 +140,56 @@ class _MovimentacoesRecentesPageState extends State<MovimentacoesRecentesPage> {
 
   // ==================== API ==================== //
 
-  Future<String> _getAuthToken() async {
-    return 'SEU_TOKEN_JWT_AQUI';
-  }
-
-  Future<List<Movimentacao>> fetchHistorico({
+  Future<List<Movimentacao>> _fetchHistorico({
+    required String token,
     int page = 1,
     int limit = 20,
   }) async {
-    final token = await _getAuthToken();
-    const String apiHost = 'http://localhost:8080';
+    final url = Uri.parse('$_apiHost/movimentacoes?page=$page&limit=$limit');
 
-    final url = Uri.parse('$apiHost/movimentacoes?page=$page&limit=$limit');
+    final res = await http.get(
+      url,
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': 'Bearer $token',
+      },
+    );
 
-    try {
-      final response = await http.get(
-        url,
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': 'Bearer $token',
-        },
-      );
+    final body = utf8.decode(res.bodyBytes);
 
-      if (response.statusCode == 200) {
-        final Map<String, dynamic> jsonResponse =
-            jsonDecode(utf8.decode(response.bodyBytes));
-        final movimentacaoResponse = MovimentacaoResponse.fromJson(jsonResponse);
-        return movimentacaoResponse.data;
-      } else {
-        throw Exception('Erro ${response.statusCode}');
-      }
-    } catch (e) {
-      throw Exception('Falha ao conectar com o servidor: $e');
+    if (res.statusCode == 200) {
+      final decoded = jsonDecode(body) as Map<String, dynamic>;
+      final resp = MovimentacaoResponse.fromJson(decoded);
+      return resp.data;
     }
+
+    if (res.statusCode == 401) {
+      throw Exception('missing/invalid token');
+    }
+
+    throw Exception('Erro ${res.statusCode}: $body');
+  }
+
+  void _carregarMovimentacoes() {
+    final auth = context.read<AuthStore>();
+    final token = auth.token;
+
+    if (token == null || !auth.isAuthenticated) {
+      setState(() {
+        _movimentacoesFuture =
+            Future.error('missing/invalid token (faça login novamente).');
+      });
+      return;
+    }
+
+    setState(() {
+      _movimentacoesFuture = _fetchHistorico(token: token);
+      _lastUpdated = DateTime.now();
+    });
   }
 
   void _atualizarDados() {
-    setState(() {
-      _lastUpdated = DateTime.now();
-      _movimentacoesFuture = fetchHistorico();
-    });
+    _carregarMovimentacoes();
   }
 
   // ==================== BUILD ==================== //
@@ -181,8 +206,10 @@ class _MovimentacoesRecentesPageState extends State<MovimentacoesRecentesPage> {
         toolbarHeight: 80,
         backgroundColor: secondaryColor,
         elevation: 0,
-        flexibleSpace:
-            const AnimatedNetworkBackground(numberOfParticles: 35, maxDistance: 50),
+        flexibleSpace: const AnimatedNetworkBackground(
+          numberOfParticles: 35,
+          maxDistance: 50,
+        ),
         title: const Text(
           'Movimentações Recentes',
           style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold),
@@ -191,11 +218,14 @@ class _MovimentacoesRecentesPageState extends State<MovimentacoesRecentesPage> {
         actions: [
           Padding(
             padding: const EdgeInsets.only(right: 20.0),
-            child: Image.asset('assets/images/logo_metroSP.png', height: 50),
+            child: Image.asset(
+              'assets/images/logo_metroSP.png',
+              height: 50,
+            ),
           ),
         ],
       ),
-      drawer: const AdminDrawer(
+      drawer: AdminDrawer(
         primaryColor: primaryColor,
         secondaryColor: secondaryColor,
       ),
@@ -211,9 +241,8 @@ class _MovimentacoesRecentesPageState extends State<MovimentacoesRecentesPage> {
                 onUpdate: _atualizarDados,
               ),
               const SizedBox(height: 32),
-
               const Text(
-                "Movimentações Recentes",
+                'Movimentações Recentes',
                 style: TextStyle(
                   color: Colors.white,
                   fontSize: 32,
@@ -222,12 +251,10 @@ class _MovimentacoesRecentesPageState extends State<MovimentacoesRecentesPage> {
               ),
               const SizedBox(height: 8),
               const Text(
-                "Visão geral das movimentações do sistema",
+                'Visão geral das movimentações do sistema',
                 style: TextStyle(color: Colors.white70, fontSize: 16),
               ),
               const SizedBox(height: 24),
-
-              // Card de Lista
               Container(
                 width: double.infinity,
                 decoration: BoxDecoration(
@@ -246,6 +273,14 @@ class _MovimentacoesRecentesPageState extends State<MovimentacoesRecentesPage> {
   // ==================== LISTA DE MOVIMENTAÇÕES ==================== //
 
   Widget _buildMovimentacoesList() {
+    if (_movimentacoesFuture == null) {
+      // ainda carregando primeira vez
+      return const Padding(
+        padding: EdgeInsets.all(48.0),
+        child: Center(child: CircularProgressIndicator()),
+      );
+    }
+
     return FutureBuilder<List<Movimentacao>>(
       future: _movimentacoesFuture,
       builder: (context, snapshot) {
@@ -293,10 +328,10 @@ class _MovimentacoesRecentesPageState extends State<MovimentacoesRecentesPage> {
                 shrinkWrap: true,
                 physics: const NeverScrollableScrollPhysics(),
                 itemCount: movimentacoes.length,
-                separatorBuilder: (context, index) => const SizedBox(height: 12),
-                itemBuilder: (context, index) {
-                  return _buildMovimentacaoCard(movimentacoes[index]);
-                },
+                separatorBuilder: (context, index) =>
+                    const SizedBox(height: 12),
+                itemBuilder: (context, index) =>
+                    _buildMovimentacaoCard(movimentacoes[index]),
               ),
               const SizedBox(height: 24),
             ],
@@ -313,7 +348,7 @@ class _MovimentacoesRecentesPageState extends State<MovimentacoesRecentesPage> {
         mainAxisAlignment: MainAxisAlignment.spaceBetween,
         children: [
           const Text(
-            "Movimentações Recentes",
+            'Movimentações Recentes',
             style: TextStyle(
               fontWeight: FontWeight.bold,
               color: Colors.black87,
@@ -358,17 +393,17 @@ class _MovimentacoesRecentesPageState extends State<MovimentacoesRecentesPage> {
       case 'entrada':
         icon = Icons.arrow_downward_rounded;
         iconColor = Colors.green.shade600;
-        statusText = "Entrada";
+        statusText = 'Entrada';
         break;
       case 'saida':
         icon = Icons.arrow_upward_rounded;
         iconColor = Colors.red.shade600;
-        statusText = "Saída";
+        statusText = 'Saída';
         break;
       default:
         icon = Icons.swap_horiz_rounded;
         iconColor = Colors.blue.shade600;
-        statusText = "Transferência";
+        statusText = 'Transferência';
     }
 
     return Padding(
@@ -409,7 +444,7 @@ class _MovimentacoesRecentesPageState extends State<MovimentacoesRecentesPage> {
                   Row(
                     children: [
                       Text(
-                        "Técnico • ",
+                        'Técnico • ',
                         style: TextStyle(
                           color: Colors.grey.shade600,
                           fontSize: 13,
@@ -432,8 +467,10 @@ class _MovimentacoesRecentesPageState extends State<MovimentacoesRecentesPage> {
               crossAxisAlignment: CrossAxisAlignment.end,
               children: [
                 Container(
-                  padding:
-                      const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 12,
+                    vertical: 4,
+                  ),
                   decoration: BoxDecoration(
                     color: iconColor.withOpacity(0.1),
                     borderRadius: BorderRadius.circular(16),
@@ -449,7 +486,8 @@ class _MovimentacoesRecentesPageState extends State<MovimentacoesRecentesPage> {
                 ),
                 const SizedBox(height: 8),
                 Text(
-                  "${item.quantidade?.toStringAsFixed(0) ?? '0'} ${item.material.unidade ?? 'un'}",
+                  '${item.quantidade?.toStringAsFixed(0) ?? '0'} '
+                  '${item.material.unidade ?? 'un'}',
                   style: const TextStyle(
                     fontWeight: FontWeight.bold,
                     color: Colors.black87,
