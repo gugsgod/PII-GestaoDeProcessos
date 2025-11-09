@@ -5,14 +5,14 @@ import 'pages/home_admin.dart';
 import 'pages/login_page.dart';
 import 'pages/materiais_admin_page.dart';
 import 'pages/instrumentos_admin_page.dart';
-import 'pages/historico_admin_page.dart';
-
+import 'pages/historico_adminpage.dart';
+import 'pages/movimentacoes.dart';
 Future<void> main() async {
 
   WidgetsFlutterBinding.ensureInitialized();
   runApp(
     ChangeNotifierProvider(
-      create: (_) => AuthStore()..init(), // carrega token uma vez
+      create: () => AuthStore()..init(), // carrega token uma vez
       child: const MyApp(),
     ),
   );
@@ -25,7 +25,7 @@ class MyApp extends StatelessWidget {
   Widget build(BuildContext context) {
     final auth = context.watch<AuthStore>();
 
-    // Enquanto inicializa o store (evita tocar no app antes do tempo)
+
     if (!auth.initialized) {
       return const MaterialApp(
         debugShowCheckedModeBanner: false,
@@ -36,7 +36,7 @@ class MyApp extends StatelessWidget {
     return MaterialApp(
       debugShowCheckedModeBanner: false,
 
-      // 👇 Decida aqui qual tela é a "home" com base no auth
+
       home: auth.isAuthenticated ? const HomeAdminPage() : const LoginPage(),
 
       // Demais rotas nomeadas
@@ -46,6 +46,7 @@ class MyApp extends StatelessWidget {
         '/materiais': (context) => MateriaisAdminPage(),
         '/instrumentos': (context) => const InstrumentosAdminPage(),
         '/historico': (context) => const HistoricoAdminPage(),
+        '/movimentacoes': (context) => const MovimentacoesRecentesPage(),
       },
     );
   }
