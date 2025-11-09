@@ -116,6 +116,44 @@ class PessoasPageState extends State<PessoasPage> {
     }
   }
 
+  // ---------- API: ADICIONAR NOVA PESSOA (POST) ----------
+  Future<bool> _addNewUser(String nome, String email, String senha, String funcao) async {
+
+    const baseUrl = "http://localhost:8080";
+    final uri = Uri.parse("$baseUrl/usuarios");
+    
+    try {
+      final response = await http.post(
+        uri,
+        headers: {
+          "Content-Type": "application/json",
+          "Accept": "application/json",
+        },
+        body: json.encode({
+          "nome": nome,
+          "email": email,
+          "senha": senha,
+          "funcao": funcao,
+        }),
+      );
+
+      if (response.statusCode == 201) {
+        // Sucesso
+        _showSnackBar("Usuário '$nome' cadastrado com sucesso!", isError: false);
+        _fetchPessoas(); // Atualiza a lista
+        return true;
+      } else {
+        // Erro do servidor (ex: email duplicado, validação)
+        final errorBody = json.decode(utf8.decode(response.bodyBytes));
+        throw Exception(errorBody["error"] ?? "Falha ao cadastrar usuário");
+      }
+    } catch (e) {
+      // Erro de conexão ou outro
+      _showSnackBar("Erro: ${e.toString().replaceAll("Exception: ", "")}", isError: true);
+      return false;
+    }
+  }
+
   void _onSearchChanged(String query) {
     _fetchPessoas();
   }
@@ -202,7 +240,7 @@ class PessoasPageState extends State<PessoasPage> {
                   ),
                   const SizedBox(width: 16),
                   ElevatedButton.icon(
-                    onPressed: () {},
+                    onPressed: _showAddUserDialog,
                     icon: const Icon(Icons.add, color: Colors.white),
                     label: const Text('Adicionar Novo Usuário'),
                     style: ElevatedButton.styleFrom(
@@ -242,6 +280,35 @@ class PessoasPageState extends State<PessoasPage> {
             ],
           ),
         ),
+      ),
+    );
+  }
+
+  // Mostra o popup de adicionar usuário
+  void _showAddUserDialog() {
+    showDialog(
+      context: context,
+      builder: (BuildContext context) {
+        return _AddUserDialog(
+          // Passa a função de salvar para o dialog
+          onSave: (nome, email, senha, funcao) async {
+            return await _addNewUser(nome, email, senha, funcao);
+          },
+        );
+      },
+    );
+  }
+
+  // Mostra uma notificação
+  void _showSnackBar(String message, {bool isError = false}) {
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(message),
+        backgroundColor: isError ? Colors.red.shade800 : Colors.green.shade800,
+        behavior: SnackBarBehavior.floating,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+        margin: const EdgeInsets.all(24),
       ),
     );
   }
@@ -433,6 +500,221 @@ class PessoasPageState extends State<PessoasPage> {
             fontSize: 13,
           ),
         ),
+      ),
+    );
+  }
+}
+
+class _AddUserDialog extends StatefulWidget {
+  // Callback que chama a função de salvar da classe pai
+  final Future<bool> Function(String nome, String email, String senha, String funcao) onSave;
+
+  const _AddUserDialog({required this.onSave});
+
+  @override
+  State<_AddUserDialog> createState() => _AddUserDialogState();
+}
+
+class _AddUserDialogState extends State<_AddUserDialog> {
+  final GlobalKey<FormState> _formKey = GlobalKey<FormState>();
+  final TextEditingController _nomeController = TextEditingController();
+  final TextEditingController _emailController = TextEditingController();
+  final TextEditingController _senhaController = TextEditingController();
+  
+  // Opções de perfil/função
+  String _selectedFuncao = 'Técnico';
+  final List<String> _funcoes = ['Técnico', 'Administrador', 'Admin'];
+  
+  bool _isSaving = false;
+
+  @override
+  void dispose() {
+    _nomeController.dispose();
+    _emailController.dispose();
+    _senhaController.dispose();
+    super.dispose();
+  }
+
+  // Tenta salvar o usuário
+  Future<void> _saveUser() async {
+    // Valida o formulário
+    if (!_formKey.currentState!.validate()) {
+      return;
+    }
+
+    setState(() { _isSaving = true; });
+
+    // Chama a função de salvar (que é o _addNewUser da PessoasPageState)
+    final bool success = await widget.onSave(
+      _nomeController.text.trim(),
+      _emailController.text.trim(),
+      _senhaController.text.trim(),
+      _selectedFuncao,
+    );
+
+    if (success && mounted) {
+      // Se salvou com sucesso, fecha o dialog
+      Navigator.of(context).pop();
+    } else {
+      // Se falhou, apenas para de carregar (o snackbar de erro já foi mostrado)
+      setState(() { _isSaving = false; });
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    const Color primaryColor = Color(0xFF080023);
+    const Color inputFillColor = Color.fromARGB(255, 30, 24, 53); // Um pouco mais claro que o fundo
+    const Color borderColor = Colors.white30;
+    const Color hintColor = Colors.white60;
+
+    return AlertDialog(
+      backgroundColor: primaryColor,
+      title: const Text(
+        'Adicionar Novo Usuário',
+        style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold),
+      ),
+      content: Form(
+        key: _formKey,
+        child: SingleChildScrollView(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              // Campo NOME
+              TextFormField(
+                controller: _nomeController,
+                style: const TextStyle(color: Colors.white),
+                decoration: _buildInputDecoration(label: 'Nome', icon: Icons.person),
+                validator: (value) {
+                  if (value == null || value.trim().isEmpty) {
+                    return 'O nome é obrigatório';
+                  }
+                  return null;
+                },
+              ),
+              const SizedBox(height: 16),
+
+              // Campo EMAIL
+              TextFormField(
+                controller: _emailController,
+                style: const TextStyle(color: Colors.white),
+                keyboardType: TextInputType.emailAddress,
+                decoration: _buildInputDecoration(label: 'Email', icon: Icons.email),
+                validator: (value) {
+                  if (value == null || value.trim().isEmpty) {
+                    return 'O email é obrigatório';
+                  }
+                  if (!RegExp(r'^[\w-\.]+@([\w-]+\.)+[\w-]{2,4}$').hasMatch(value)) {
+                    return 'Insira um email válido';
+                  }
+                  return null;
+                },
+              ),
+              const SizedBox(height: 16),
+
+              // Campo SENHA
+              TextFormField(
+                controller: _senhaController,
+                style: const TextStyle(color: Colors.white),
+                obscureText: true,
+                decoration: _buildInputDecoration(label: 'Senha', icon: Icons.lock),
+                validator: (value) {
+                  if (value == null || value.isEmpty) {
+                    return 'A senha é obrigatória';
+                  }
+                  if (value.length < 8) {
+                    return 'A senha deve ter no mínimo 8 caracteres';
+                  }
+                  return null;
+                },
+              ),
+              const SizedBox(height: 16),
+
+              // Dropdown FUNÇÃO/PERFIL
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
+                decoration: BoxDecoration(
+                  color: inputFillColor,
+                  borderRadius: BorderRadius.circular(12),
+                  border: Border.all(color: borderColor),
+                ),
+                child: DropdownButtonHideUnderline(
+                  child: DropdownButton<String>(
+                    value: _selectedFuncao,
+                    isExpanded: true,
+                    dropdownColor: primaryColor, // Fundo do menu
+                    icon: const Icon(Icons.arrow_drop_down, color: hintColor),
+                    style: const TextStyle(color: Colors.white, fontSize: 16),
+                    onChanged: (String? newValue) {
+                      if (newValue != null) {
+                        setState(() { _selectedFuncao = newValue; });
+                      }
+                    },
+                    items: _funcoes.map<DropdownMenuItem<String>>((String value) {
+                      return DropdownMenuItem<String>(
+                        value: value,
+                        child: Text(value),
+                      );
+                    }).toList(),
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+      actions: [
+        // Botão CANCELAR
+        TextButton(
+          onPressed: () => Navigator.of(context).pop(),
+          child: const Text('Cancelar', style: TextStyle(color: Colors.white70)),
+        ),
+        // Botão SALVAR
+        ElevatedButton(
+          onPressed: _isSaving ? null : _saveUser, // Desativa se estiver salvando
+          style: ElevatedButton.styleFrom(
+            backgroundColor: const Color(0xFF3B82F6),
+            foregroundColor: Colors.white,
+          ),
+          child: _isSaving
+              ? const SizedBox(
+                  width: 20,
+                  height: 20,
+                  child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
+                )
+              : const Text('Salvar'),
+        ),
+      ],
+    );
+  }
+
+  // Helper para estilizar os campos de texto do formulário
+  InputDecoration _buildInputDecoration({required String label, required IconData icon}) {
+    const Color inputFillColor = Color.fromARGB(255, 30, 24, 53);
+    const Color borderColor = Colors.white30;
+    const Color hintColor = Colors.white60;
+
+    return InputDecoration(
+      labelText: label,
+      labelStyle: const TextStyle(color: hintColor),
+      hintStyle: const TextStyle(color: hintColor),
+      prefixIcon: Icon(icon, color: hintColor, size: 20),
+      filled: true,
+      fillColor: inputFillColor,
+      // Borda padrão
+      border: OutlineInputBorder(
+        borderRadius: BorderRadius.circular(12),
+        borderSide: const BorderSide(color: borderColor),
+      ),
+      // Borda habilitada
+      enabledBorder: OutlineInputBorder(
+        borderRadius: BorderRadius.circular(12),
+        borderSide: const BorderSide(color: borderColor),
+      ),
+      // Borda em foco (quando o usuário clica)
+      focusedBorder: OutlineInputBorder(
+        borderRadius: BorderRadius.circular(12),
+        borderSide: const BorderSide(color: Color(0xFF3B82F6), width: 2), // Borda azul de destaque
       ),
     );
   }
