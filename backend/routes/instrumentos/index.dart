@@ -1,7 +1,12 @@
+import 'dart:convert';
 import 'package:dart_frog/dart_frog.dart';
 import 'package:postgres/postgres.dart';
+import 'package:backend/api_utils.dart';
 
 Future<Response> onRequest(RequestContext context) async {
+  
+  
+  
   switch (context.request.method) {
     case HttpMethod.get:
       return _get(context);
@@ -17,6 +22,9 @@ Future<Response> onRequest(RequestContext context) async {
 }
 
 Future<Response> _get(RequestContext context) async {
+  final guard = await requireAdmin(context);
+  if (guard != null) return guard;
+  
   final connection = context.read<Connection>();
 
   try{
@@ -24,21 +32,43 @@ Future<Response> _get(RequestContext context) async {
       'SELECT id, patrimonio, descricao, categoria, status, local_atual_id, responsavel_atual_id, proxima_calibracao_em, ativo, created_at, updated_at FROM instrumentos;'
     );
 
+    // ------ Apagar depois -------
+    dynamic _convertValue(dynamic value) {
+      if (value is UndecodedBytes) {
+        try {
+          return value.asString;
+        } catch (e) {
+          return value.toString();
+        }
+      }
+      if (value is DateTime) {
+        return value.toIso8601String();
+      }
+
+      return value;
+    }
+
     final instrumentosList = result.map((row) {
       final map = row.toColumnMap();
-      return {
-        'id': map['id'],
-        'patrimonio': map['patrimonio'],
-        'descricao': map['descricao'],
-        'categoria': map['categoria'],
-        'status': map['status'],
-        'local_atual_id': map['local_atual_id'],
-        'responsavel_atual_id': map['responsavel_atual_id'],
-        'proxima_calibracao_em': map['proxima_calibracao_em'],
-        'ativo': map['ativo'],
-        'created_at': map['created_at'],
-        'updated_at': map['updated_at'],
-      };
+
+      final convertMap = map.map(
+        (key, value) => MapEntry(key, _convertValue(value)),
+      );
+
+      return convertMap;
+      // return {
+      //   'id': map['id'],
+      //   'patrimonio': map['patrimonio'],
+      //   'descricao': map['descricao'],
+      //   'categoria': map['categoria'],
+      //   'status': map['status'],
+      //   'local_atual_id': map['local_atual_id'],
+      //   'responsavel_atual_id': map['responsavel_atual_id'],
+      //   'proxima_calibracao_em': map['proxima_calibracao_em'],
+      //   'ativo': map['ativo'],
+      //   'created_at': map['created_at'],
+      //   'updated_at': map['updated_at'],
+      // };
     }).toList();
 
     return Response.json(body: instrumentosList);

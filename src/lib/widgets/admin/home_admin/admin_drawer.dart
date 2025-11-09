@@ -97,7 +97,9 @@ class AdminDrawer extends StatelessWidget {
                 _buildDrawerItem(
                   icon: Icons.sync_alt_outlined,
                   text: 'Movimentações',
-                  onTap: () {},
+                  onTap: () {
+                    Navigator.pushReplacementNamed(context, '/movimentacoes');
+                  },
                 ),
                 const SizedBox(height: 24),
                 _buildSectionTitle('STATUS RÁPIDO'),

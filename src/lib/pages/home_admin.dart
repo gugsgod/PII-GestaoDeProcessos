@@ -259,7 +259,6 @@ class _HomeAdminPageState extends State<HomeAdminPage> {
                   : _buildMobileList(isDesktop),
               const SizedBox(height: 40),
               RecentMovements(
-                movimentacoes: _movimentacoes,
                 scrollController: _scrollController,
                 isDesktop: isDesktop,
               ),
@@ -300,7 +299,6 @@ class _HomeAdminPageState extends State<HomeAdminPage> {
     }
 
     return RecentMovements(
-      movimentacoes: _movimentacoes,
       scrollController: _scrollController,
       isDesktop: isDesktop,
     );

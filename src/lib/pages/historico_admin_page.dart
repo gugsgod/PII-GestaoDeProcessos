@@ -136,10 +136,6 @@ class _HistoricoAdminPageState extends State<HistoricoAdminPage> {
   // Lógica de API 
   // -----------------------------------------------------------------
 
-  Future<String> _getAuthToken() async {
-    return 'SEU_TOKEN_JWT_AQUI';
-  }
-
   /// Busca o histórico de movimentações na API.
   Future<List<Movimentacao>> fetchHistorico({
     int? materialId,
@@ -149,8 +145,7 @@ class _HistoricoAdminPageState extends State<HistoricoAdminPage> {
     int page = 1,
     int limit = 20, // Padrão de 20 itens por página
   }) async {
-    final token = await _getAuthToken();
-    
+
     const String apiHost = 'http://localhost:8080';
 
     // Constrói os parâmetros de query
@@ -172,7 +167,6 @@ class _HistoricoAdminPageState extends State<HistoricoAdminPage> {
         url,
         headers: {
           'Content-Type': 'application/json',
-          'Authorization': 'Bearer $token',
         },
       );
 

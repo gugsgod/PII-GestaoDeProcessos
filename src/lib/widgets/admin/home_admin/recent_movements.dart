@@ -1,18 +1,158 @@
+// lib/widgets/admin/home_admin/recent_movements.dart
+
+import 'dart:convert';
+
 import 'package:flutter/material.dart';
 import 'package:marquee/marquee.dart';
-import '../../../pages/home_admin.dart'; // Importa a classe Movimentacao
+import 'package:http/http.dart' as http;
+import 'package:provider/provider.dart';
 
-class RecentMovements extends StatelessWidget {
-  final List<Movimentacao> movimentacoes;
+import 'package:src/auth/auth_store.dart';
+
+// ==================== MODELOS LOCAIS ==================== //
+
+class _MaterialInfo {
+  final String? codSap;
+  final String? descricao;
+  final String? unidade;
+
+  _MaterialInfo({this.codSap, this.descricao, this.unidade});
+
+  factory _MaterialInfo.fromJson(Map<String, dynamic> json) {
+    return _MaterialInfo(
+      codSap: json['cod_sap']?.toString(),
+      descricao: json['descricao']?.toString(),
+      unidade: json['unidade']?.toString(),
+    );
+  }
+}
+
+class _Movimentacao {
+  final String operacao; // 'entrada' | 'saida' | 'transferencia'
+  final String titulo; // descrição do material
+  final String tag; // cod_sap
+  final String usuarioLabel; // texto para exibir usuário/responsável
+  final String horarioLabel; // texto formatado de data/hora
+  final String quantidadeLabel; // ex: "10 UN"
+
+  _Movimentacao({
+    required this.operacao,
+    required this.titulo,
+    required this.tag,
+    required this.usuarioLabel,
+    required this.horarioLabel,
+    required this.quantidadeLabel,
+  });
+
+  factory _Movimentacao.fromJson(Map<String, dynamic> json) {
+    final material =
+        _MaterialInfo.fromJson(json['material'] as Map<String, dynamic>);
+
+    final createdAt = DateTime.tryParse(json['created_at'] as String? ?? '');
+    final dtLabel = createdAt != null
+        ? '${createdAt.day.toString().padLeft(2, '0')}/'
+            '${createdAt.month.toString().padLeft(2, '0')} '
+            '${createdAt.hour.toString().padLeft(2, '0')}:'
+            '${createdAt.minute.toString().padLeft(2, '0')}'
+        : '';
+
+    final qtd = (json['quantidade'] as num?)?.toDouble() ?? 0;
+    final unidade = material.unidade ?? 'UN';
+
+    // ainda não temos join com usuários; mostramos o id ou genérico
+    final respId = json['responsavel_id'];
+    final userLabel =
+        respId == null ? 'Responsável não informado' : 'Resp. #$respId';
+
+    return _Movimentacao(
+      operacao: (json['operacao'] as String?) ?? 'entrada',
+      titulo: material.descricao ?? 'Material',
+      tag: (material.codSap ?? '').isEmpty
+          ? 'SEM CÓDIGO'
+          : material.codSap.toString(),
+      usuarioLabel: userLabel,
+      horarioLabel: dtLabel,
+      quantidadeLabel: '${qtd.toStringAsFixed(0)} $unidade',
+    );
+  }
+}
+
+// ==================== WIDGET PRINCIPAL ==================== //
+
+class RecentMovements extends StatefulWidget {
   final ScrollController scrollController;
   final bool isDesktop;
 
   const RecentMovements({
     super.key,
-    required this.movimentacoes,
     required this.scrollController,
     required this.isDesktop,
   });
+
+  @override
+  State<RecentMovements> createState() => _RecentMovementsState();
+}
+
+class _RecentMovementsState extends State<RecentMovements> {
+  static const String _apiHost = 'http://localhost:8080';
+
+  Future<List<_Movimentacao>>? _future;
+
+  @override
+  void initState() {
+    super.initState();
+    // espera o primeiro build para garantir acesso ao Provider
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _carregar();
+    });
+  }
+
+  void _carregar() {
+    final auth = context.read<AuthStore>();
+    final token = auth.token;
+
+    if (token == null || !auth.isAuthenticated) {
+      setState(() {
+        _future = Future.error(
+          'missing/invalid token (faça login novamente para ver as movimentações).',
+        );
+      });
+      return;
+    }
+
+    setState(() {
+      _future = _fetchRecent(token);
+    });
+  }
+
+  Future<List<_Movimentacao>> _fetchRecent(String token) async {
+    // pega só as últimas 10
+    final url = Uri.parse('$_apiHost/movimentacoes?page=1&limit=10');
+
+    final res = await http.get(
+      url,
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': 'Bearer $token',
+      },
+    );
+
+    final body = utf8.decode(res.bodyBytes);
+
+    if (res.statusCode == 200) {
+      final decoded = jsonDecode(body) as Map<String, dynamic>;
+      final list = (decoded['data'] as List)
+          .map((e) => _Movimentacao.fromJson(e as Map<String, dynamic>))
+          .toList();
+      return list;
+    }
+
+    if (res.statusCode == 401) {
+      throw Exception('missing/invalid token');
+    }
+
+    throw Exception('Erro ${res.statusCode}: $body');
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -25,7 +165,11 @@ class RecentMovements extends StatelessWidget {
             SizedBox(width: 12),
             Text(
               'Movimentações recentes:',
-              style: TextStyle(color: Colors.white, fontSize: 22, fontWeight: FontWeight.bold),
+              style: TextStyle(
+                color: Colors.white,
+                fontSize: 22,
+                fontWeight: FontWeight.bold,
+              ),
             ),
           ],
         ),
@@ -36,42 +180,84 @@ class RecentMovements extends StatelessWidget {
             color: Colors.white.withOpacity(0.05),
             borderRadius: BorderRadius.circular(16),
           ),
-          child: ScrollbarTheme(
-            data: ScrollbarThemeData(
-              thumbColor: MaterialStateProperty.all(Colors.white.withOpacity(0.3)),
-              mainAxisMargin: 16.0,
-            ),
-            child: Padding(
-              padding: const EdgeInsets.only(right: 8.0),
-              child: Scrollbar(
-                thumbVisibility: true,
-                interactive: true,
-                controller: scrollController,
-                child: ListView.separated(
-                  controller: scrollController,
-                  padding: const EdgeInsets.all(16),
-                  itemCount: movimentacoes.length,
-                  separatorBuilder: (context, index) => const SizedBox(height: 12),
-                  itemBuilder: (context, index) {
-                    final item = movimentacoes[index];
-                    return _buildMovementItem(
-                      isDesktop: isDesktop,
-                      isEntrada: item.type == 'entrada',
-                      title: item.title,
-                      tag: item.tag,
-                      user: item.user,
-                      time: item.time,
-                      amount: item.amount,
-                    );
-                  },
+          child: FutureBuilder<List<_Movimentacao>>(
+            future: _future,
+            builder: (context, snapshot) {
+              if (snapshot.connectionState == ConnectionState.waiting ||
+                  _future == null) {
+                return const Center(
+                  child: CircularProgressIndicator(color: Colors.white),
+                );
+              }
+
+              if (snapshot.hasError) {
+                return Padding(
+                  padding: const EdgeInsets.all(16.0),
+                  child: Center(
+                    child: Text(
+                      'Erro ao carregar movimentações: ${snapshot.error}',
+                      style: const TextStyle(color: Colors.redAccent),
+                      textAlign: TextAlign.center,
+                    ),
+                  ),
+                );
+              }
+
+              final movimentos = snapshot.data ?? [];
+
+              if (movimentos.isEmpty) {
+                return const Center(
+                  child: Text(
+                    'Nenhuma movimentação recente.',
+                    style: TextStyle(color: Colors.white70),
+                  ),
+                );
+              }
+
+              return ScrollbarTheme(
+                data: ScrollbarThemeData(
+                  thumbColor: MaterialStateProperty.all(
+                    Colors.white.withOpacity(0.3),
+                  ),
+                  mainAxisMargin: 16.0,
                 ),
-              ),
-            ),
+                child: Padding(
+                  padding: const EdgeInsets.only(right: 8.0),
+                  child: Scrollbar(
+                    thumbVisibility: true,
+                    interactive: true,
+                    controller: widget.scrollController,
+                    child: ListView.separated(
+                      controller: widget.scrollController,
+                      padding: const EdgeInsets.all(16),
+                      itemCount: movimentos.length,
+                      separatorBuilder: (context, index) =>
+                          const SizedBox(height: 12),
+                      itemBuilder: (context, index) {
+                        final item = movimentos[index];
+                        final isEntrada = item.operacao == 'entrada';
+                        return _buildMovementItem(
+                          isDesktop: widget.isDesktop,
+                          isEntrada: isEntrada,
+                          title: item.titulo,
+                          tag: item.tag,
+                          user: item.usuarioLabel,
+                          time: item.horarioLabel,
+                          amount: item.quantidadeLabel,
+                        );
+                      },
+                    ),
+                  ),
+                ),
+              );
+            },
           ),
         ),
       ],
     );
   }
+
+  // ==================== ITEM ==================== //
 
   Widget _buildMovementItem({
     required bool isDesktop,
@@ -83,16 +269,23 @@ class RecentMovements extends StatelessWidget {
     required String amount,
   }) {
     final icon = isEntrada ? Icons.arrow_downward : Icons.arrow_upward;
-    final iconColor = isEntrada ? Colors.green.shade700 : Colors.red.shade700;
+    final iconColor =
+        isEntrada ? Colors.green.shade700 : Colors.red.shade700;
     final statusText = isEntrada ? 'Entrada' : 'Saída';
-    final statusBgColor = isEntrada ? const Color.fromARGB(255, 195, 236, 198) : const Color.fromARGB(255, 247, 200, 204);
-    final statusTextColor = isEntrada ? Colors.green.shade800 : Colors.red.shade800;
-    final userIcon = user == 'admin' ? Icons.shield_outlined : Icons.engineering_outlined;
+    final statusBgColor = isEntrada
+        ? const Color.fromARGB(255, 195, 236, 198)
+        : const Color.fromARGB(255, 247, 200, 204);
+    final statusTextColor =
+        isEntrada ? Colors.green.shade800 : Colors.red.shade800;
 
     Widget titleWidget = isDesktop
         ? Text(
             title,
-            style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16, color: Colors.black87),
+            style: const TextStyle(
+              fontWeight: FontWeight.bold,
+              fontSize: 16,
+              color: Colors.black87,
+            ),
             overflow: TextOverflow.ellipsis,
             maxLines: 1,
           )
@@ -100,7 +293,11 @@ class RecentMovements extends StatelessWidget {
             height: 20,
             child: Marquee(
               text: title,
-              style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16, color: Colors.black87),
+              style: const TextStyle(
+                fontWeight: FontWeight.bold,
+                fontSize: 16,
+                color: Colors.black87,
+              ),
               blankSpace: 50.0,
               velocity: 30.0,
               pauseAfterRound: const Duration(seconds: 2),
@@ -110,7 +307,7 @@ class RecentMovements extends StatelessWidget {
     return Container(
       padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
-        color: const Color.fromARGB(209, 255, 255, 255), 
+        color: const Color.fromARGB(209, 255, 255, 255),
         borderRadius: BorderRadius.circular(12),
         boxShadow: [
           BoxShadow(
@@ -135,15 +332,29 @@ class RecentMovements extends StatelessWidget {
                   children: [
                     Expanded(child: titleWidget),
                     const SizedBox(width: 8),
-                    _buildTag(tag, Colors.grey.shade200, const Color.fromARGB(255, 44, 44, 44)),
+                    _buildTag(
+                      tag,
+                      Colors.grey.shade200,
+                      const Color.fromARGB(255, 44, 44, 44),
+                    ),
                   ],
                 ),
                 const SizedBox(height: 6),
                 Row(
                   children: [
-                    Icon(userIcon, size: 14, color: const Color.fromARGB(255, 44, 44, 44)),
+                    const Icon(
+                      Icons.engineering_outlined,
+                      size: 14,
+                      color: Color.fromARGB(255, 44, 44, 44),
+                    ),
                     const SizedBox(width: 4),
-                    Text('$user · $time', style: const TextStyle(color: Color.fromARGB(255, 44, 44, 44), fontSize: 12)),
+                    Text(
+                      '$user · $time',
+                      style: const TextStyle(
+                        color: Color.fromARGB(255, 44, 44, 44),
+                        fontSize: 12,
+                      ),
+                    ),
                   ],
                 ),
               ],
@@ -155,14 +366,21 @@ class RecentMovements extends StatelessWidget {
             children: [
               _buildTag(statusText, statusBgColor, statusTextColor),
               const SizedBox(height: 6),
-              Text(amount, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 14, color: Colors.black87)),
+              Text(
+                amount,
+                style: const TextStyle(
+                  fontWeight: FontWeight.bold,
+                  fontSize: 14,
+                  color: Colors.black87,
+                ),
+              ),
             ],
           ),
         ],
       ),
     );
   }
-  
+
   Widget _buildTag(String text, Color bgColor, Color textColor) {
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
@@ -172,7 +390,11 @@ class RecentMovements extends StatelessWidget {
       ),
       child: Text(
         text,
-        style: TextStyle(color: textColor, fontSize: 10, fontWeight: FontWeight.bold),
+        style: TextStyle(
+          color: textColor,
+          fontSize: 10,
+          fontWeight: FontWeight.bold,
+        ),
       ),
     );
   }
