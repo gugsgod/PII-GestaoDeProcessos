@@ -5,14 +5,14 @@ import 'pages/home_admin.dart';
 import 'pages/login_page.dart';
 import 'pages/materiais_admin_page.dart';
 import 'pages/instrumentos_admin_page.dart';
-import 'pages/historico_adminpage.dart';
+import 'pages/historico_admin_page.dart';
 import 'pages/movimentacoes.dart';
 Future<void> main() async {
 
   WidgetsFlutterBinding.ensureInitialized();
   runApp(
     ChangeNotifierProvider(
-      create: () => AuthStore()..init(), // carrega token uma vez
+      create: (_) => AuthStore()..init(), // carrega token uma vez
       child: const MyApp(),
     ),
   );
