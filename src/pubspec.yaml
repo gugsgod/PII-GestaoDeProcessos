@@ -42,6 +42,7 @@ dependencies:
   dotenv: ^4.2.0
   jwt_decoder: ^2.0.1
   marquee: ^2.2.3
+  flutter_dotenv: ^6.0.0
 
 dev_dependencies:
   flutter_test:
@@ -67,6 +68,7 @@ flutter:
   assets:
     # A linha com o traço "-" deve ter 4 espaços antes.
     - assets/images/
+    - .env
 
   # To add assets to your application, add an assets section, like this:
   # assets:

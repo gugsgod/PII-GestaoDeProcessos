@@ -1,6 +1,7 @@
 import 'package:dart_frog/dart_frog.dart';
 import 'package:postgres/postgres.dart';
 import 'package:backend/api_utils.dart';
+import 'dart:convert';
 
 Future<Response> onRequest(RequestContext context) async {
   if (context.request.method != HttpMethod.get) {
@@ -76,10 +77,24 @@ Future<Response> onRequest(RequestContext context) async {
       parameters: {...params, 'limit': pg.limit, 'offset': pg.offset},
     );
 
+    dynamic _convertValue(dynamic value) {
+      if (value is UndecodedBytes) {
+        try {
+          return value.asString;
+        } catch (e) {
+          return value.toString();
+        }
+      }
+      if (value is DateTime) {
+        return value.toIso8601String();
+      }
+      return value;
+    }
+
 // mapeamento com toString() defensivo
     final data = rows.map((r) {
       return {
-        'id': r[0],
+        'id': _convertValue(r[0]),
         'operacao': r[1]?.toString(),
         'material_id': r[2],
         'origem_local_id': r[3],
@@ -88,9 +103,9 @@ Future<Response> onRequest(RequestContext context) async {
         'quantidade': r[6],
         'responsavel_id': r[7],
         'observacao': r[8],
-        'created_at': r[9]?.toString(),
+        'created_at': _convertValue(r[9]),
         'material': {
-          'cod_sap': r[10],
+          'cod_sap': _convertValue(r[10]),
           'descricao': r[11],
           'unidade': r[12],
         }
