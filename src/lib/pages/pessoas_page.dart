@@ -505,9 +505,11 @@ class PessoasPageState extends State<PessoasPage> {
   }
 }
 
+
 class _AddUserDialog extends StatefulWidget {
   // Callback que chama a função de salvar da classe pai
-  final Future<bool> Function(String nome, String email, String senha, String funcao) onSave;
+  // Agora envia o valor da API (ex: "técnico")
+  final Future<bool> Function(String nome, String email, String senha, String funcaoApi) onSave;
 
   const _AddUserDialog({required this.onSave});
 
@@ -521,11 +523,23 @@ class _AddUserDialogState extends State<_AddUserDialog> {
   final TextEditingController _emailController = TextEditingController();
   final TextEditingController _senhaController = TextEditingController();
   
-  // Opções de perfil/função
-  String _selectedFuncao = 'Técnico';
-  final List<String> _funcoes = ['Técnico', 'Administrador', 'Admin'];
+  // FIX: Mapeia o valor de display (chave) para o valor da API (valor)
+  final Map<String, String> _funcoesMap = {
+    'Técnico': 'técnico',
+    'Administrador': 'administrador',
+  };
+  
+  // Armazena o valor de display (o que o usuário vê)
+  late String _selectedFuncaoDisplay;
   
   bool _isSaving = false;
+
+  @override
+  void initState() {
+    super.initState();
+    // Inicia com o primeiro valor do mapa
+    _selectedFuncaoDisplay = _funcoesMap.keys.first;
+  }
 
   @override
   void dispose() {
@@ -544,12 +558,15 @@ class _AddUserDialogState extends State<_AddUserDialog> {
 
     setState(() { _isSaving = true; });
 
+    // Pega o valor da API correspondente ao display
+    final String funcaoApiValue = _funcoesMap[_selectedFuncaoDisplay]!;
+
     // Chama a função de salvar (que é o _addNewUser da PessoasPageState)
     final bool success = await widget.onSave(
       _nomeController.text.trim(),
       _emailController.text.trim(),
       _senhaController.text.trim(),
-      _selectedFuncao,
+      funcaoApiValue, // Envia o valor correto (ex: "técnico")
     );
 
     if (success && mounted) {
@@ -640,20 +657,21 @@ class _AddUserDialogState extends State<_AddUserDialog> {
                 ),
                 child: DropdownButtonHideUnderline(
                   child: DropdownButton<String>(
-                    value: _selectedFuncao,
+                    value: _selectedFuncaoDisplay, // Usa o valor de display
                     isExpanded: true,
                     dropdownColor: primaryColor, // Fundo do menu
                     icon: const Icon(Icons.arrow_drop_down, color: hintColor),
                     style: const TextStyle(color: Colors.white, fontSize: 16),
                     onChanged: (String? newValue) {
                       if (newValue != null) {
-                        setState(() { _selectedFuncao = newValue; });
+                        setState(() { _selectedFuncaoDisplay = newValue; });
                       }
                     },
-                    items: _funcoes.map<DropdownMenuItem<String>>((String value) {
+                    // Mapeia as CHAVES (display) do mapa para os itens
+                    items: _funcoesMap.keys.map<DropdownMenuItem<String>>((String displayValue) {
                       return DropdownMenuItem<String>(
-                        value: value,
-                        child: Text(value),
+                        value: displayValue,
+                        child: Text(displayValue),
                       );
                     }).toList(),
                   ),
