@@ -1,4 +1,5 @@
 import 'dart:convert';
+import 'dart:math';
 
 import 'package:backend/security/bcrypt.dart';
 import 'package:dart_frog/dart_frog.dart';
@@ -19,27 +20,62 @@ Future<Response> _get(RequestContext context) async {
   final connection = context.read<Connection>();
 
   try {
-    // Postgres 3.x: execute() retorna um Result que é Iterable<Row>
-    final result = await connection.execute(
-      'SELECT id_usuario, nome, email, funcao FROM usuario ORDER BY nome',
-    );
+    // --- Lógica de Filtro e Paginação ---
+    final query = context.request.uri.queryParameters;
+    
+    // Busca e Filtro
+    final searchQuery = query['q'];
+    final category = query['categoria'];
+
+    // Paginação
+    final limit = int.tryParse(query['limit'] ?? '20') ?? 20;
+    // O front-end estava enviando "page": "q", então vamos tratar 'q' como 1
+    final page = int.tryParse(query['page'] ?? '1') ?? 1;
+    final offset = max(0, page - 1) * limit;
+
+    var sql = 'SELECT id_usuario, nome, email, funcao FROM usuarios';
+    final whereClauses = <String>[];
+    final parameters = <String, dynamic>{
+      'limit': limit,
+      'offset': offset,
+    };
+
+    if (searchQuery != null && searchQuery.isNotEmpty) {
+      whereClauses.add('(nome ILIKE @q OR email ILIKE @q)');
+      parameters['q'] = '%$searchQuery%';
+    }
+    
+    // O front-end envia 'Todas as Categorias', que não devemos filtrar
+    if (category != null && category.isNotEmpty && category != 'Todas as Categorias') {
+      whereClauses.add('funcao = @categoria');
+      parameters['categoria'] = category;
+    }
+
+    if (whereClauses.isNotEmpty) {
+      sql += ' WHERE ${whereClauses.join(' AND ')}';
+    }
+
+    sql += ' ORDER BY nome LIMIT @limit OFFSET @offset';
+    // --- Fim da Lógica ---
+
+    final result = await connection.execute(Sql.named(sql), parameters: parameters);
 
     final usersList = result.map((row) {
-      // Acessa por índice (ou row.toColumnMap() se preferir por nome)
-      final map = row.toColumnMap();
-      return {
-        'id': map['id_usuario'],
-        'nome': map['nome'],
-        'email': map['email'],
-        'funcao': map['funcao'],
-      };
+      // Mapeia direto para o front-end não ter que adivinhar os nomes
+      return row.toColumnMap(); 
     }).toList();
 
-    return Response.json(body: usersList);
+    // FIX 1: Retornar como {'data': [...]}
+    return Response.json(body: {'data': usersList});
+
   } catch (e, st) {
     // ignore: avoid_print
     print('Erro na consulta: $e\n$st');
-    return Response(statusCode: 500, body: 'Erro ao buscar usuários.');
+    // FIX 4: Retornar erro como JSON
+    return Response.json(
+      statusCode: 500,
+      body: {'error': 'Erro ao buscar usuários: ${e.toString()}'},
+    );
   }
 }
 
@@ -71,7 +107,7 @@ Future<Response> _post(RequestContext context) async {
   try {
     final result = await connection.execute(
       Sql.named('''
-        INSERT INTO usuario (nome, email, funcao, senha)
+        INSERT INTO usuarios (nome, email, funcao, senha)
         VALUES (@nome, @email, @funcao, @hash)
         RETURNING id_usuario, nome, email, funcao
       '''),
