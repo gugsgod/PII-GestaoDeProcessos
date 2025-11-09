@@ -5,7 +5,6 @@ import 'animated_network_background.dart';
 import 'package:intl/intl.dart';
 import 'dart:convert';
 import 'package:http/http.dart' as http;
-import 'package:flutter_dotenv/flutter_dotenv.dart';
 
 // Modelo para o objeto "material" aninhado
 class MaterialInfo {
@@ -137,17 +136,6 @@ class _HistoricoAdminPageState extends State<HistoricoAdminPage> {
   // Lógica de API 
   // -----------------------------------------------------------------
 
-  Future<String?> _getAuthToken() async {
-    final token = dotenv.env['JWT_SECRET'];
-
-    if (token == null || token.isEmpty) {
-      print("ERRO CRITICO: Variavel nao encontrada no .env");
-      return null;
-    }
-
-    return token;
-  }
-
   /// Busca o histórico de movimentações na API.
   Future<List<Movimentacao>> fetchHistorico({
     int? materialId,
@@ -157,12 +145,7 @@ class _HistoricoAdminPageState extends State<HistoricoAdminPage> {
     int page = 1,
     int limit = 20, // Padrão de 20 itens por página
   }) async {
-    final token = await _getAuthToken();
 
-    if (token == null) {
-      print("fetchHistorico falhou: Token nulo, usuário não autenticado.");
-      throw Exception('Usuario não autenticado (token nulo).');
-    }
     const String apiHost = 'http://localhost:8080';
 
     // Constrói os parâmetros de query
@@ -184,7 +167,6 @@ class _HistoricoAdminPageState extends State<HistoricoAdminPage> {
         url,
         headers: {
           'Content-Type': 'application/json',
-          'Authorization': 'Bearer $token',
         },
       );
 

@@ -6,14 +6,10 @@ import 'pages/login_page.dart';
 import 'pages/materiais_admin_page.dart';
 import 'pages/instrumentos_admin_page.dart';
 import 'pages/historico_admin_page.dart';
-import 'package:flutter_dotenv/flutter_dotenv.dart';
 
 Future<void> main() async {
 
   WidgetsFlutterBinding.ensureInitialized();
-
-  await dotenv.load(fileName: ".env");
-
   runApp(
     ChangeNotifierProvider(
       create: (_) => AuthStore()..init(), // carrega token uma vez

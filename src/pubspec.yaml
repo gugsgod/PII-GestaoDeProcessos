@@ -68,7 +68,6 @@ flutter:
   assets:
     # A linha com o traço "-" deve ter 4 espaços antes.
     - assets/images/
-    - .env
 
   # To add assets to your application, add an assets section, like this:
   # assets:
