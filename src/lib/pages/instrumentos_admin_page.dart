@@ -3,30 +3,22 @@ import 'package:src/auth/auth_store.dart';
 import 'package:src/services/instrumentos_api.dart';
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
-
-// import 'package:http/retry.dart';
-// import 'package:src/pages/home_admin.dart';
-import 'package:src/widgets/admin/materiais_admin/filter_bar.dart';
-// import 'dart:math';
 import '../widgets/admin/home_admin/admin_drawer.dart';
-// import '../widgets/admin/home_admin/dashboard_card.dart';
-// import '../widgets/admin/home_admin/recent_movements.dart';
 import '../widgets/admin/home_admin/update_status_bar.dart';
-// import '../widgets/admin/home_admin/quick_actions.dart';
 import 'animated_network_background.dart';
 
-// Enum para o status do instrumento, facilita o controle
+// Enum para o status do instrumento
 enum InstrumentStatus { ativo, inativo }
 
-// Modelo de dados para representar um instrumento
+// Modelo de dados
 class Instrument {
   final String id;
   final String patrimonio;
   final String descricao;
   final String categoria;
   final InstrumentStatus status;
-  final String localAtual; // Armazenará o ID como String
-  final String responsavelAtual; // Armazenará o ID como String
+  final String localAtual;
+  final String responsavelAtual;
   final DateTime proximaCalibracaoEm;
   final bool ativo;
   final DateTime createdAt;
@@ -46,9 +38,7 @@ class Instrument {
     required this.updatedAt,
   });
 
-  // Factory constructor AJUSTADO para corresponder ao backend real.
   factory Instrument.fromJson(Map<String, dynamic> map) {
-    // Helper para converter datas de forma segura
     DateTime _parseDate(dynamic dateString, {required DateTime fallback}) {
       if (dateString is String) {
         return DateTime.tryParse(dateString) ?? fallback;
@@ -64,7 +54,6 @@ class Instrument {
       status: (map['status']?.toString() ?? 'inativo') == 'ativo'
           ? InstrumentStatus.ativo
           : InstrumentStatus.inativo,
-      // CORREÇÃO: Lendo os campos _id e convertendo para String para exibição.
       localAtual: map['local_atual_id']?.toString() ?? 'N/A',
       responsavelAtual: map['responsavel_atual_id']?.toString() ?? 'N/A',
       proximaCalibracaoEm: _parseDate(
@@ -88,8 +77,6 @@ class InstrumentosAdminPage extends StatefulWidget {
 class _InstrumentosAdminPageState extends State<InstrumentosAdminPage> {
   late DateTime _lastUpdated;
   final ScrollController _scrollController = ScrollController();
-  String _selectedCategory = "Todas as Categorias";
-  final TextEditingController _searchController = TextEditingController();
 
   bool _isLoading = true;
   String? _errorMessage;
@@ -105,7 +92,6 @@ class _InstrumentosAdminPageState extends State<InstrumentosAdminPage> {
   @override
   void dispose() {
     _scrollController.dispose();
-    _searchController.dispose();
     super.dispose();
   }
 
@@ -118,8 +104,6 @@ class _InstrumentosAdminPageState extends State<InstrumentosAdminPage> {
         _isLoading = false;
         _errorMessage = 'missing/invalid token';
       });
-      // opcional: redirecionar para login
-      // if (mounted) Navigator.pushReplacementNamed(context, '/');
       return;
     }
 
@@ -137,10 +121,6 @@ class _InstrumentosAdminPageState extends State<InstrumentosAdminPage> {
         _errorMessage = 'Falha ao carregar instrumentos: $e';
       });
     }
-  }
-
-  void _onSearchChanged(String query) {
-    _load();
   }
 
   @override
@@ -161,6 +141,7 @@ class _InstrumentosAdminPageState extends State<InstrumentosAdminPage> {
         ),
       );
     }
+
     const Color primaryColor = Color(0xFF080023);
     const Color secondaryColor = Color.fromARGB(255, 0, 14, 92);
     final isDesktop = MediaQuery.of(context).size.width > 768;
@@ -200,7 +181,7 @@ class _InstrumentosAdminPageState extends State<InstrumentosAdminPage> {
               UpdateStatusBar(
                 isDesktop: isDesktop,
                 lastUpdated: _lastUpdated,
-                onUpdate: () { _load(); },
+                onUpdate: _load,
               ),
               const SizedBox(height: 48),
               const Text(
@@ -232,17 +213,7 @@ class _InstrumentosAdminPageState extends State<InstrumentosAdminPage> {
                 ],
               ),
               const SizedBox(height: 24),
-              FilterBar(
-                searchController: _searchController,
-                onSearchChanged: _onSearchChanged,
-                selectedCategory: _selectedCategory,
-                onCategoryChanged: (newValue) {
-                  setState(() {
-                    _selectedCategory = newValue!;
-                    _load();
-                  });
-                },
-              ),
+              // FilterBar removido
               const SizedBox(height: 24),
               Container(
                 width: double.infinity,
@@ -343,11 +314,7 @@ class _InstrumentosAdminPageState extends State<InstrumentosAdminPage> {
         children: [
           Expanded(
             flex: 2,
-            child: Text(
-              item.id,
-              style: cellStyle,
-              overflow: TextOverflow.ellipsis,
-            ),
+            child: Text(item.id, style: cellStyle, overflow: TextOverflow.ellipsis),
           ),
           Expanded(
             flex: 3,
@@ -361,14 +328,8 @@ class _InstrumentosAdminPageState extends State<InstrumentosAdminPage> {
           ),
           Expanded(flex: 2, child: _StatusChip(status: item.status)),
           Expanded(flex: 2, child: Text(item.localAtual, style: cellStyle)),
-          Expanded(
-            flex: 2,
-            child: Text(item.responsavelAtual, style: cellStyle),
-          ),
-          Expanded(
-            flex: 3,
-            child: _CalibrationCell(date: item.proximaCalibracaoEm),
-          ),
+          Expanded(flex: 2, child: Text(item.responsavelAtual, style: cellStyle)),
+          Expanded(flex: 3, child: _CalibrationCell(date: item.proximaCalibracaoEm)),
           SizedBox(
             width: 56,
             child: Center(
@@ -391,9 +352,8 @@ class _StatusChip extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final bool isAtivo = status == InstrumentStatus.ativo;
-    final backgroundColor = isAtivo
-        ? Colors.green.shade100
-        : Colors.red.shade100;
+    final backgroundColor =
+        isAtivo ? Colors.green.shade100 : Colors.red.shade100;
     final textColor = isAtivo ? Colors.green.shade800 : Colors.red.shade800;
     final text = isAtivo ? 'Ativo' : 'Inativo';
     return Align(

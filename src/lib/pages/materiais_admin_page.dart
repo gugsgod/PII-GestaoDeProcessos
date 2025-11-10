@@ -1,9 +1,6 @@
 import 'dart:convert';
-import 'package:flutter/foundation.dart';
-import 'package:http/http.dart' as http;
 import 'package:flutter/material.dart';
-// import 'package:provider/provider.dart'; // <= ADICIONE 
-import 'package:src/auth/auth_store.dart';
+import 'package:http/http.dart' as http;
 import '../widgets/admin/home_admin/admin_drawer.dart';
 import 'animated_network_background.dart';
 import '../widgets/admin/home_admin/update_status_bar.dart';
@@ -56,7 +53,6 @@ class _MateriaisAdminPageState extends State<MateriaisAdminPage> {
   final ScrollController _scrollController = ScrollController();
   final TextEditingController _searchController = TextEditingController();
 
-  // Estados para controlar o carregamento e erros da API
   bool _isLoading = true;
   String? _errorMessage;
   List<MaterialItem> _materiais = [];
@@ -209,6 +205,8 @@ class _MateriaisAdminPageState extends State<MateriaisAdminPage> {
                 ],
               ),
               const SizedBox(height: 24),
+
+              // 🔧 FilterBar atualizado
               FilterBar(
                 searchController: _searchController,
                 selectedCategory: _selectedCategory,
@@ -218,7 +216,17 @@ class _MateriaisAdminPageState extends State<MateriaisAdminPage> {
                     _fetchMateriais();
                   });
                 },
-                onSearchChanged: _onSearchChanged,
+                onSearchChanged: (query) => _fetchMateriais(),
+                categories: [
+                  'Todas as Categorias',
+                  'Cabos',
+                  'Relés',
+                  'Conectores',
+                  'EPIs',
+                  'Ferramentas',
+                  'Peças',
+                ],
+                searchHint: 'Buscar por nome ou código...',
               ),
               const SizedBox(height: 24),
               Container(
@@ -287,31 +295,21 @@ class _MateriaisAdminPageState extends State<MateriaisAdminPage> {
         const Divider(color: Color.fromARGB(59, 102, 102, 102), height: 1),
         SizedBox(
           height: 500,
-          child: ScrollbarTheme(
-            data: ScrollbarThemeData(
-              thumbColor:
-                  MaterialStateProperty.all(const Color.fromARGB(255, 44, 44, 44)),
-              mainAxisMargin: 8.0,
-            ),
-            child: Padding(
-              padding: const EdgeInsets.only(right: 8.0),
-              child: Scrollbar(
-                controller: _scrollController,
-                thumbVisibility: true,
-                interactive: true,
-                child: ListView.separated(
-                  controller: _scrollController,
-                  padding: EdgeInsets.zero,
-                  itemCount: _materiais.length,
-                  separatorBuilder: (context, index) => const Divider(
-                      color: Color.fromARGB(59, 102, 102, 102),
-                      height: 1,
-                      indent: 16,
-                      endIndent: 16),
-                  itemBuilder: (context, index) =>
-                      _buildMaterialRow(_materiais[index]),
-                ),
-              ),
+          child: Scrollbar(
+            controller: _scrollController,
+            thumbVisibility: true,
+            interactive: true,
+            child: ListView.separated(
+              controller: _scrollController,
+              padding: EdgeInsets.zero,
+              itemCount: _materiais.length,
+              separatorBuilder: (context, index) => const Divider(
+                  color: Color.fromARGB(59, 102, 102, 102),
+                  height: 1,
+                  indent: 16,
+                  endIndent: 16),
+              itemBuilder: (context, index) =>
+                  _buildMaterialRow(_materiais[index]),
             ),
           ),
         ),
