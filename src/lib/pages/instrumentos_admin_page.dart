@@ -3,6 +3,8 @@ import 'package:src/auth/auth_store.dart';
 import 'package:src/services/instrumentos_api.dart';
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
+
+// imports locais (widgets usados)
 import '../widgets/admin/home_admin/admin_drawer.dart';
 import '../widgets/admin/home_admin/update_status_bar.dart';
 import 'animated_network_background.dart';
@@ -10,7 +12,7 @@ import 'animated_network_background.dart';
 // Enum para o status do instrumento
 enum InstrumentStatus { ativo, inativo }
 
-// Modelo de dados
+// Modelo de dados (mantive seu formato original)
 class Instrument {
   final String id;
   final String patrimonio;
@@ -78,24 +80,41 @@ class _InstrumentosAdminPageState extends State<InstrumentosAdminPage> {
   late DateTime _lastUpdated;
   final ScrollController _scrollController = ScrollController();
 
+  // NOVO: controller de busca e lista filtrada
+  final TextEditingController _searchController = TextEditingController();
+  List<Instrument> _allInstruments = [];
+  List<Instrument> _displayInstruments = [];
+
   bool _isLoading = true;
   String? _errorMessage;
-  List<Instrument> _instruments = [];
 
   @override
   void initState() {
     super.initState();
     _lastUpdated = DateTime.now();
+
+    // quando o usuário digitar, atualiza filtro localmente
+    _searchController.addListener(_applyFilter);
+
+    // Carrega os instrumentos
     WidgetsBinding.instance.addPostFrameCallback((_) => _load());
   }
 
   @override
   void dispose() {
     _scrollController.dispose();
+    _searchController.removeListener(_applyFilter);
+    _searchController.dispose();
     super.dispose();
   }
 
+  // Carrega dados da API (mantendo seu fetch original)
   Future<void> _load() async {
+    setState(() {
+      _isLoading = true;
+      _errorMessage = null;
+    });
+
     final auth = context.read<AuthStore>();
     final token = auth.token;
 
@@ -110,9 +129,15 @@ class _InstrumentosAdminPageState extends State<InstrumentosAdminPage> {
     try {
       final data = await fetchInstrumentos(token);
       if (!mounted) return;
+
+      final instruments = data.map((e) => Instrument.fromJson(e)).toList();
+
       setState(() {
-        _instruments = data.map((e) => Instrument.fromJson(e)).toList();
+        _allInstruments = instruments;
+        // inicialmente exibe toda a lista
+        _displayInstruments = List<Instrument>.from(_allInstruments);
         _isLoading = false;
+        _lastUpdated = DateTime.now();
       });
     } catch (e) {
       if (!mounted) return;
@@ -123,8 +148,39 @@ class _InstrumentosAdminPageState extends State<InstrumentosAdminPage> {
     }
   }
 
+  // Aplica o filtro localmente usando o texto do _searchController
+  void _applyFilter() {
+    final query = _searchController.text.trim().toLowerCase();
+    if (query.isEmpty) {
+      setState(() {
+        _displayInstruments = List<Instrument>.from(_allInstruments);
+      });
+      return;
+    }
+
+    setState(() {
+      _displayInstruments = _allInstruments.where((inst) {
+        final descricao = inst.descricao.toLowerCase();
+        final patrimonio = inst.patrimonio.toLowerCase();
+        final id = inst.id.toLowerCase();
+        return descricao.contains(query) || patrimonio.contains(query) || id.contains(query);
+      }).toList();
+    });
+  }
+
+  void _onSearchChanged(String query) {
+    // aqui apenas reaplicamos o filtro (o listener já faz isso),
+    // mas mantemos o método para compatibilidade de chamadas
+    _applyFilter();
+  }
+
   @override
   Widget build(BuildContext context) {
+    const Color primaryColor = Color(0xFF080023);
+    const Color secondaryColor = Color.fromARGB(255, 0, 14, 92);
+    final isDesktop = MediaQuery.of(context).size.width > 768;
+
+    // Estados iniciais (loading / erro)
     if (_isLoading) {
       return const Scaffold(
         body: Center(child: CircularProgressIndicator()),
@@ -141,10 +197,6 @@ class _InstrumentosAdminPageState extends State<InstrumentosAdminPage> {
         ),
       );
     }
-
-    const Color primaryColor = Color(0xFF080023);
-    const Color secondaryColor = Color.fromARGB(255, 0, 14, 92);
-    final isDesktop = MediaQuery.of(context).size.width > 768;
 
     return Scaffold(
       backgroundColor: primaryColor,
@@ -198,13 +250,37 @@ class _InstrumentosAdminPageState extends State<InstrumentosAdminPage> {
                 style: TextStyle(color: Colors.white70, fontSize: 16),
               ),
               const SizedBox(height: 24),
+
+              // ==================== BARRA DE BUSCA (igual à da página Pessoas) ====================
               Row(
-                mainAxisAlignment: MainAxisAlignment.end,
                 children: [
+                  // Campo de busca com o mesmo visual do FilterBar->TextField
+                  Expanded(
+                    child: TextField(
+                      controller: _searchController,
+                      style: const TextStyle(color: Colors.black87),
+                      decoration: InputDecoration(
+                        hintText: 'Buscar por nome ou código...',
+                        hintStyle: TextStyle(color: Colors.grey.shade600),
+                        prefixIcon: Icon(Icons.search, color: Colors.grey.shade600),
+                        filled: true,
+                        fillColor: const Color.fromARGB(209, 255, 255, 255),
+                        border: OutlineInputBorder(
+                          borderRadius: BorderRadius.circular(8),
+                          borderSide: BorderSide.none,
+                        ),
+                      ),
+                      onChanged: _onSearchChanged,
+                    ),
+                  ),
+
+                  const SizedBox(width: 16),
+
+                  // Botão de atualizar (igual ao comportamento que você já usa)
                   ElevatedButton.icon(
-                    onPressed: () {},
-                    icon: const Icon(Icons.add, color: Colors.white),
-                    label: const Text("Criar Novo Instrumento"),
+                    onPressed: _load,
+                    icon: const Icon(Icons.refresh, color: Colors.white),
+                    label: const Text("Atualizar"),
                     style: ElevatedButton.styleFrom(
                       backgroundColor: const Color(0xFF3B82F6),
                       foregroundColor: Colors.white,
@@ -212,9 +288,9 @@ class _InstrumentosAdminPageState extends State<InstrumentosAdminPage> {
                   ),
                 ],
               ),
+
               const SizedBox(height: 24),
-              // FilterBar removido
-              const SizedBox(height: 24),
+
               Container(
                 width: double.infinity,
                 decoration: BoxDecoration(
@@ -250,7 +326,7 @@ class _InstrumentosAdminPageState extends State<InstrumentosAdminPage> {
         ),
       );
     }
-    if (_instruments.isEmpty) {
+    if (_displayInstruments.isEmpty) {
       return const Center(
         child: Padding(
           padding: EdgeInsets.all(32.0),
@@ -267,13 +343,13 @@ class _InstrumentosAdminPageState extends State<InstrumentosAdminPage> {
           shrinkWrap: true,
           physics: const NeverScrollableScrollPhysics(),
           padding: EdgeInsets.zero,
-          itemCount: _instruments.length,
+          itemCount: _displayInstruments.length,
           separatorBuilder: (context, index) => const Divider(
             color: Color.fromARGB(59, 102, 102, 102),
             height: 1,
           ),
           itemBuilder: (context, index) =>
-              _buildMaterialRow(_instruments[index]),
+              _buildMaterialRow(_displayInstruments[index]),
         ),
       ],
     );
@@ -314,7 +390,11 @@ class _InstrumentosAdminPageState extends State<InstrumentosAdminPage> {
         children: [
           Expanded(
             flex: 2,
-            child: Text(item.id, style: cellStyle, overflow: TextOverflow.ellipsis),
+            child: Text(
+              item.id,
+              style: cellStyle,
+              overflow: TextOverflow.ellipsis,
+            ),
           ),
           Expanded(
             flex: 3,
@@ -328,8 +408,14 @@ class _InstrumentosAdminPageState extends State<InstrumentosAdminPage> {
           ),
           Expanded(flex: 2, child: _StatusChip(status: item.status)),
           Expanded(flex: 2, child: Text(item.localAtual, style: cellStyle)),
-          Expanded(flex: 2, child: Text(item.responsavelAtual, style: cellStyle)),
-          Expanded(flex: 3, child: _CalibrationCell(date: item.proximaCalibracaoEm)),
+          Expanded(
+            flex: 2,
+            child: Text(item.responsavelAtual, style: cellStyle),
+          ),
+          Expanded(
+            flex: 3,
+            child: _CalibrationCell(date: item.proximaCalibracaoEm),
+          ),
           SizedBox(
             width: 56,
             child: Center(

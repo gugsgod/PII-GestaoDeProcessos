@@ -1,216 +1,217 @@
+import 'dart:convert';
+import 'dart:io';
+
 import 'package:flutter/material.dart';
+import 'package:intl/intl.dart';
+import 'package:http/http.dart' as http;
+import 'package:provider/provider.dart';
+
+import 'package:src/auth/auth_store.dart';
+import 'animated_network_background.dart';
 import 'package:src/widgets/admin/home_admin/update_status_bar.dart';
 import '../widgets/admin/home_admin/admin_drawer.dart';
-import 'animated_network_background.dart';
-import 'package:intl/intl.dart';
-import 'dart:convert';
-import 'package:http/http.dart' as http;
 
-// Modelo para o objeto "material" aninhado
-class MaterialInfo {
-  final String? codSap;
-  final String? descricao;
-  final String? unidade;
+const String apiBaseUrl = 'http://localhost:8080';
 
-  MaterialInfo({this.codSap, this.descricao, this.unidade});
+// ===================== MODELOS ===================== //
 
-  factory MaterialInfo.fromJson(Map<String, dynamic> json) {
-    return MaterialInfo(
-      codSap: json['cod_sap'] as String?,
-      descricao: json['descricao'] as String?,
-      unidade: json['unidade'] as String?,
-    );
-  }
-}
+class AlertItem {
+  final String tipo; // 'estoque_minimo' ou 'calibracao_vencida'
+  final String titulo; // ex: 'Estoque abaixo do mínimo'
+  final String descricao; // descrição do item
+  final String codigo; // cod_sap ou patrimônio
+  final String origem; // local / base / info do instrumento
+  final String detalhe; // resumo (ex: 'Saldo 5 de 100', 'Venceu em 10/09/2025')
+  final DateTime referencia; // usado para ordenar (mais crítico/recente)
+  final Color cor; // cor do badge
 
-// Modelo principal da movimentação
-class Movimentacao {
-  final int id;
-  final String? operacao;
-  final int materialId;
-  final int? origemLocalId;
-  final int? destinoLocalId;
-  final String? lote;
-  final double? quantidade;
-  final int? responsavelId;
-  final String? observacao;
-  final DateTime createdAt;
-  final MaterialInfo material;
-
-  Movimentacao({
-    required this.id,
-    this.operacao,
-    required this.materialId,
-    this.origemLocalId,
-    this.destinoLocalId,
-    this.lote,
-    this.quantidade,
-    this.responsavelId,
-    this.observacao,
-    required this.createdAt,
-    required this.material,
+  AlertItem({
+    required this.tipo,
+    required this.titulo,
+    required this.descricao,
+    required this.codigo,
+    required this.origem,
+    required this.detalhe,
+    required this.referencia,
+    required this.cor,
   });
-
-  factory Movimentacao.fromJson(Map<String, dynamic> json) {
-    return Movimentacao(
-      id: json['id'] as int,
-      operacao: json['operacao'] as String?,
-      materialId: json['material_id'] as int,
-      origemLocalId: json['origem_local_id'] as int?,
-      destinoLocalId: json['destino_local_id'] as int?,
-      lote: json['lote'] as String?,
-      quantidade: json['quantidade'] as double?,
-      responsavelId: json['responsavel_id'] as int?,
-      observacao: json['observacao'] as String?,
-      createdAt: DateTime.parse(json['created_at'] as String),
-      material: MaterialInfo.fromJson(json['material'] as Map<String, dynamic>),
-    );
-  }
 }
 
-// Classe para encapsular a resposta paginada da API
-class MovimentacaoResponse {
-  final int page;
-  final int limit;
-  final int total;
-  final List<Movimentacao> data;
-
-  MovimentacaoResponse({
-    required this.page,
-    required this.limit,
-    required this.total,
-    required this.data,
-  });
-
-  factory MovimentacaoResponse.fromJson(Map<String, dynamic> json) {
-    final List<dynamic> dataList = json['data'] as List;
-    final List<Movimentacao> movimentacoes =
-        dataList.map((item) => Movimentacao.fromJson(item)).toList();
-
-    return MovimentacaoResponse(
-      page: json['page'] as int,
-      limit: json['limit'] as int,
-      total: json['total'] as int,
-      data: movimentacoes,
-    );
-  }
-}
-
-// -----------------------------------------------------------------
-// Widget da Página
-// -----------------------------------------------------------------
+// ===================== PÁGINA ===================== //
 
 class HistoricoAdminPage extends StatefulWidget {
   const HistoricoAdminPage({Key? key}) : super(key: key);
 
   @override
-  _HistoricoAdminPageState createState() => _HistoricoAdminPageState();
+  State<HistoricoAdminPage> createState() => _HistoricoAdminPageState();
 }
 
 class _HistoricoAdminPageState extends State<HistoricoAdminPage> {
   late DateTime _lastUpdated;
   final ScrollController _scrollController = ScrollController();
-  final TextEditingController _searchController = TextEditingController();
 
-  // Future para os dados (usado pelo FutureBuilder)
-  late Future<List<Movimentacao>> _movimentacoesFuture;
-  
-  // A instância do MovimentacaoService foi removida.
+  late Future<List<AlertItem>> _alertsFuture;
 
   @override
   void initState() {
     super.initState();
     _lastUpdated = DateTime.now();
-    // Inicia a busca dos dados chamando a função local
-    _movimentacoesFuture = fetchHistorico();
+    _alertsFuture = _loadAlerts();
   }
 
   @override
   void dispose() {
     _scrollController.dispose();
-    _searchController.dispose();
     super.dispose();
   }
 
-  // -----------------------------------------------------------------
-  // Lógica de API 
-  // -----------------------------------------------------------------
+  // ===================== HELPERS API ===================== //
 
-  /// Busca o histórico de movimentações na API.
-  Future<List<Movimentacao>> fetchHistorico({
-    int? materialId,
-    int? localId,
-    String? operacao,
-    String? lote,
-    int page = 1,
-    int limit = 20, // Padrão de 20 itens por página
-  }) async {
+  Map<String, String> _authHeaders(AuthStore auth) => {
+    'Authorization': 'Bearer ${auth.token}',
+    'Content-Type': 'application/json',
+  };
 
-    const String apiHost = 'http://localhost:8080';
+  Future<List<AlertItem>> _loadAlerts() async {
+    final auth = context.read<AuthStore>();
 
-    // Constrói os parâmetros de query
-    final queryParams = <String, String>{
-      'page': page.toString(),
-      'limit': limit.toString(),
-      if (materialId != null) 'material_id': materialId.toString(),
-      if (localId != null) 'local_id': localId.toString(),
-      if (operacao != null && operacao.isNotEmpty) 'operacao': operacao,
-      if (lote != null && lote.isNotEmpty) 'lote': lote,
-    };
+    if (!auth.isAuthenticated || auth.token == null) {
+      throw Exception('Sessão expirada. Faça login novamente.');
+    }
 
-    final url = Uri.parse('$apiHost/movimentacoes').replace(
-      queryParameters: queryParams.isEmpty ? null : queryParams,
-    );
+    final headers = _authHeaders(auth);
 
     try {
-      final response = await http.get(
-        url,
-        headers: {
-          'Content-Type': 'application/json',
-        },
+      // 1) Alertas de materiais: /estoque/minimos
+      final minimosRes = await http.get(
+        Uri.parse('$apiBaseUrl/estoque/minimos?page=1&limit=200'),
+        headers: headers,
       );
 
-      if (response.statusCode == 200) {
-        // Decodifica o corpo da resposta
-        final Map<String, dynamic> jsonResponse = 
-            jsonDecode(utf8.decode(response.bodyBytes)) as Map<String, dynamic>;
-        
-        // Usa o modelo MovimentacaoResponse para parsear
-        final movimentacaoResponse = MovimentacaoResponse.fromJson(jsonResponse);
-        
-        // Retorna apenas a lista de dados
-        return movimentacaoResponse.data;
-      } else {
-        // Tratar outros status codes (401, 403, 500, etc.)
-        throw Exception('Falha ao carregar movimentações: ${response.statusCode}');
+      if (minimosRes.statusCode != 200) {
+        throw Exception(
+          'Erro ao carregar alertas de estoque (${minimosRes.statusCode})',
+        );
       }
+
+      final minimosJson =
+          jsonDecode(utf8.decode(minimosRes.bodyBytes)) as Map<String, dynamic>;
+      final minimosData = (minimosJson['data'] as List? ?? []);
+
+      final List<AlertItem> alerts = [];
+
+      for (final item in minimosData) {
+        if (item is! Map<String, dynamic>) continue;
+
+        final material = (item['material'] as Map?) ?? {};
+        final local = (item['local'] as Map?) ?? {};
+        final qtDisp = (item['qt_disp'] as num?)?.toDouble() ?? 0;
+        final minimo = (item['minimo'] as num?)?.toDouble() ?? 0;
+        final deficit =
+            (item['deficit'] as num?)?.toDouble() ?? (minimo - qtDisp);
+
+        alerts.add(
+          AlertItem(
+            tipo: 'estoque_minimo',
+            titulo: 'Estoque abaixo do mínimo',
+            descricao: (material['descricao'] ?? 'Material sem descrição')
+                .toString(),
+            codigo: (material['cod_sap'] ?? '').toString(),
+            origem: (local['nome'] ?? 'Local não informado').toString(),
+            detalhe:
+                'Saldo ${qtDisp.toStringAsFixed(0)} / Mínimo ${minimo.toStringAsFixed(0)} • Déficit ${deficit.toStringAsFixed(0)}',
+            referencia: DateTime.now(), // sem timestamp próprio → usa agora
+            cor: Colors.red.shade600,
+          ),
+        );
+      }
+
+      // 2) Alertas de instrumentos: calibração vencida em /instrumentos
+      final instRes = await http.get(
+        Uri.parse('$apiBaseUrl/instrumentos'),
+        headers: headers,
+      );
+
+      if (instRes.statusCode == 200) {
+        final instList = jsonDecode(utf8.decode(instRes.bodyBytes));
+        final now = DateTime.now();
+
+        if (instList is List) {
+          for (final raw in instList) {
+            if (raw is! Map<String, dynamic>) continue;
+
+            final prox = raw['proxima_calibracao_em'];
+            if (prox == null) continue;
+
+            DateTime? due;
+            try {
+              if (prox is String) {
+                due = DateTime.parse(prox);
+              }
+            } catch (_) {
+              due = null;
+            }
+            if (due == null) continue;
+
+            // VENCIDO: due < now
+            if (due.isBefore(now)) {
+              alerts.add(
+                AlertItem(
+                  tipo: 'calibracao_vencida',
+                  titulo: 'Calibração vencida',
+                  descricao: (raw['descricao'] ?? 'Instrumento sem descrição')
+                      .toString(),
+                  codigo: (raw['patrimonio'] ?? '').toString(),
+                  origem:
+                      'Instrumento • ${(raw['categoria'] ?? '').toString()}',
+                  detalhe: 'Vencido em ${DateFormat('dd/MM/yyyy').format(due)}',
+                  referencia: due,
+                  cor: Colors.orange.shade700,
+                ),
+              );
+            }
+          }
+        }
+      } else {
+        // Se der erro aqui, só loga, não quebra a página inteira
+        print(
+          'Erro ao carregar instrumentos para alertas (${instRes.statusCode})',
+        );
+      }
+
+      // Ordena: primeiro os mais críticos/vencidos (referência mais antiga),
+      // depois os mais recentes
+      alerts.sort((a, b) => a.referencia.compareTo(b.referencia));
+
+      return alerts;
+    } on SocketException {
+      throw Exception('Sem conexão com o servidor.');
     } catch (e) {
-      // Tratar erros de conexão, timeout, etc.
-      print('Erro na API fetchHistorico: $e');
-      throw Exception('Falha ao conectar ao servidor: $e');
+      print('Erro ao carregar alertas: $e');
+      rethrow;
     }
   }
-
-  // -----------------------------------------------------------------
-  // Métodos do Widget
-  // -----------------------------------------------------------------
 
   void _atualizarDados() {
     setState(() {
       _lastUpdated = DateTime.now();
-      // Atualiza o future para buscar novos dados
-      _movimentacoesFuture = fetchHistorico();
+      _alertsFuture = _loadAlerts();
     });
   }
 
-  void _onSearchChanged(String query) {
-    print("Buscando por: $query");
-  }
+  // ===================== BUILD ===================== //
 
   @override
   Widget build(BuildContext context) {
-    const Color primaryColor = Color(0xFF080023); //cor de fundo
-    const Color secondaryColor = Color.fromARGB(255,0,14,92); 
+    final auth = context.watch<AuthStore>();
+
+    if (!auth.isAuthenticated) {
+      Future.microtask(() => Navigator.pushReplacementNamed(context, '/'));
+      return const Scaffold(body: Center(child: CircularProgressIndicator()));
+    }
+
+    const Color primaryColor = Color(0xFF080023);
+    const Color secondaryColor = Color.fromARGB(255, 0, 14, 92);
     final isDesktop = MediaQuery.of(context).size.width > 768;
 
     return Scaffold(
@@ -219,19 +220,23 @@ class _HistoricoAdminPageState extends State<HistoricoAdminPage> {
         toolbarHeight: 80,
         backgroundColor: secondaryColor,
         elevation: 0,
-        flexibleSpace:
-            const AnimatedNetworkBackground(numberOfParticles: 35, maxDistance: 50),
-        title: const Text("Histórico de Movimentações", // Título atualizado
-            style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
+        flexibleSpace: const AnimatedNetworkBackground(
+          numberOfParticles: 35,
+          maxDistance: 50,
+        ),
+        title: const Text(
+          'Histórico de Alertas',
+          style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold),
+        ),
         iconTheme: const IconThemeData(color: Colors.white),
         actions: [
           Padding(
             padding: const EdgeInsets.only(right: 20.0),
             child: Image.asset('assets/images/logo_metroSP.png', height: 50),
-          )
+          ),
         ],
       ),
-      drawer: AdminDrawer(
+      drawer: const AdminDrawer(
         primaryColor: primaryColor,
         secondaryColor: secondaryColor,
       ),
@@ -246,9 +251,9 @@ class _HistoricoAdminPageState extends State<HistoricoAdminPage> {
                 lastUpdated: _lastUpdated,
                 onUpdate: _atualizarDados,
               ),
-              const SizedBox(height: 48),
+              const SizedBox(height: 32),
               const Text(
-                "Histórico de Alertas", 
+                'Histórico de Alertas',
                 style: TextStyle(
                   color: Colors.white,
                   fontSize: 32,
@@ -257,18 +262,18 @@ class _HistoricoAdminPageState extends State<HistoricoAdminPage> {
               ),
               const SizedBox(height: 8),
               const Text(
-                "Visão geral das entradas, saídas e transferências", 
+                'Monitoramento de estoque abaixo do mínimo e calibrações vencidas.',
                 style: TextStyle(color: Colors.white70, fontSize: 16),
               ),
               const SizedBox(height: 24),
               Container(
                 width: double.infinity,
                 decoration: BoxDecoration(
-                  color: Color.fromARGB(209, 255, 255, 255),
+                  color: const Color(0xFFF3F4F6),
                   borderRadius: BorderRadius.circular(16),
                 ),
-                child: _buildMovimentacoesList(), // Chama o FutureBuilder
-              )
+                child: _buildAlertsList(),
+              ),
             ],
           ),
         ),
@@ -276,63 +281,65 @@ class _HistoricoAdminPageState extends State<HistoricoAdminPage> {
     );
   }
 
-  // ------------------- Widgets da Tabela de Histórico ------------------ //
+  // ===================== LISTA DE ALERTAS ===================== //
 
-  /// Constrói a lista usando um FutureBuilder
-  Widget _buildMovimentacoesList() {
-    return FutureBuilder<List<Movimentacao>>(
-      future: _movimentacoesFuture,
+  Widget _buildAlertsList() {
+    return FutureBuilder<List<AlertItem>>(
+      future: _alertsFuture,
       builder: (context, snapshot) {
         if (snapshot.connectionState == ConnectionState.waiting) {
-          return const Center(
-            child: Padding(
-              padding: EdgeInsets.all(48.0),
-              child: CircularProgressIndicator(),
-            ),
+          return const Padding(
+            padding: EdgeInsets.all(48.0),
+            child: Center(child: CircularProgressIndicator()),
           );
         }
 
         if (snapshot.hasError) {
-          return Center(
-            child: Padding(
-              padding: const EdgeInsets.all(24.0),
-              child: Text(
-                'Erro ao buscar dados: ${snapshot.error}',
-                style: const TextStyle(color: Colors.red),
-              ),
+          return Padding(
+            padding: const EdgeInsets.all(24.0),
+            child: Column(
+              children: [
+                Text(
+                  'Erro ao carregar alertas:\n${snapshot.error}',
+                  textAlign: TextAlign.center,
+                  style: const TextStyle(color: Colors.red),
+                ),
+                const SizedBox(height: 16),
+                ElevatedButton(
+                  onPressed: _atualizarDados,
+                  child: const Text('Tentar novamente'),
+                ),
+              ],
             ),
           );
         }
 
-        if (!snapshot.hasData || snapshot.data!.isEmpty) {
-          return const Center(
-            child: Padding(
-              padding: EdgeInsets.all(24.0),
+        final alerts = snapshot.data ?? [];
+
+        if (alerts.isEmpty) {
+          return const Padding(
+            padding: EdgeInsets.all(24.0),
+            child: Center(
               child: Text(
-                'Nenhuma movimentação encontrada.',
+                'Nenhum alerta ativo no momento.',
                 style: TextStyle(color: Colors.black54),
               ),
             ),
           );
         }
 
-        // Dados carregados com sucesso
-        final movimentacoes = snapshot.data!;
-
         return Column(
           children: [
-            _buildTableHeader(movimentacoes.length),
+            _buildHeader(alerts.length),
             const Divider(color: Color.fromARGB(59, 102, 102, 102), height: 1),
             SizedBox(
-              height: 600, // Altura fixa para a lista rolável
+              height: 600,
               child: ListView.separated(
                 controller: _scrollController,
                 padding: const EdgeInsets.all(16.0),
-                itemCount: movimentacoes.length,
-                separatorBuilder: (context, index) => const SizedBox(height: 12),
-                itemBuilder: (context, index) {
-                  return _buildMovimentacaoRow(movimentacoes[index]);
-                },
+                itemCount: alerts.length,
+                separatorBuilder: (_, __) => const SizedBox(height: 12),
+                itemBuilder: (context, index) => _buildAlertCard(alerts[index]),
               ),
             ),
           ],
@@ -341,15 +348,14 @@ class _HistoricoAdminPageState extends State<HistoricoAdminPage> {
     );
   }
 
-  /// Constrói o cabeçalho da tabela.
-  Widget _buildTableHeader(int count) {
+  Widget _buildHeader(int count) {
     return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 24.0, vertical: 16.0),
+      padding: const EdgeInsets.symmetric(horizontal: 24.0, vertical: 14.0),
       child: Row(
         mainAxisAlignment: MainAxisAlignment.spaceBetween,
         children: [
           const Text(
-            'Últimas Movimentações',
+            'Alertas Ativos',
             style: TextStyle(
               fontWeight: FontWeight.bold,
               color: Colors.black87,
@@ -359,14 +365,14 @@ class _HistoricoAdminPageState extends State<HistoricoAdminPage> {
           Container(
             padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
             decoration: BoxDecoration(
-              color: Colors.grey.shade200,
+              color: Colors.red.shade50,
               borderRadius: BorderRadius.circular(16),
             ),
             child: Text(
               count.toString(),
               style: TextStyle(
                 fontWeight: FontWeight.bold,
-                color: Colors.grey.shade800,
+                color: Colors.red.shade700,
               ),
             ),
           ),
@@ -375,147 +381,73 @@ class _HistoricoAdminPageState extends State<HistoricoAdminPage> {
     );
   }
 
-  /// Constrói uma única linha da tabela de movimentações.
-  Widget _buildMovimentacaoRow(Movimentacao item) {
-    // Define ícone e cor com base na operação
-    final IconData icon;
-    final Color iconColor;
-    final String operacaoLabel;
-
-    switch (item.operacao) {
-      case 'entrada':
-        icon = Icons.arrow_downward_rounded;
-        iconColor = Colors.green.shade700;
-        operacaoLabel = 'Entrada';
-        break;
-      case 'saida':
-        icon = Icons.arrow_upward_rounded;
-        iconColor = Colors.red.shade700;
-        operacaoLabel = 'Saída';
-        break;
-      case 'transferencia':
-        icon = Icons.swap_horiz_rounded;
-        iconColor = Colors.blue.shade700;
-        operacaoLabel = 'Transferência';
-        break;
-      default:
-        icon = Icons.help_outline_rounded;
-        iconColor = Colors.grey.shade700;
-        operacaoLabel = item.operacao ?? 'Desconhecida';
-    }
+  Widget _buildAlertCard(AlertItem a) {
+    final icon = a.tipo == 'estoque_minimo'
+        ? Icons.inventory_2_rounded
+        : Icons.build_circle_rounded;
 
     return Container(
       padding: const EdgeInsets.all(16.0),
       decoration: BoxDecoration(
         color: Colors.white,
         borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: Colors.grey.shade200),
         boxShadow: [
           BoxShadow(
-            color: Colors.black.withOpacity(0.05),
-            blurRadius: 10,
-            offset: const Offset(0, 4),
+            color: Colors.black.withOpacity(0.04),
+            blurRadius: 8,
+            offset: const Offset(0, 3),
           ),
         ],
+        border: Border.all(color: a.cor.withOpacity(0.4), width: 1),
       ),
       child: Row(
         children: [
-          Icon(icon, color: iconColor, size: 28),
-          const SizedBox(width: 16),
+          CircleAvatar(
+            backgroundColor: a.cor.withOpacity(0.12),
+            child: Icon(icon, color: a.cor),
+          ),
+          const SizedBox(width: 14),
           Expanded(
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Text(
-                  item.material.descricao ?? 'Material Desconhecido',
-                  style: const TextStyle(
+                  a.titulo,
+                  style: TextStyle(
+                    color: a.cor,
                     fontWeight: FontWeight.bold,
-                    color: Colors.black87,
-                    fontSize: 15,
+                    fontSize: 14,
                   ),
                 ),
                 const SizedBox(height: 4),
-                // Mostra origem e destino
-                if (item.operacao == 'entrada')
-                  Text(
-                    'Destino ID: ${item.destinoLocalId ?? 'N/A'}',
-                    style: const TextStyle(color: Colors.black54, fontSize: 13),
+                Text(
+                  a.descricao,
+                  style: const TextStyle(
+                    color: Colors.black87,
+                    fontWeight: FontWeight.w600,
+                    fontSize: 14,
                   ),
-                if (item.operacao == 'saida')
-                  Text(
-                    'Origem ID: ${item.origemLocalId ?? 'N/A'}',
-                    style: const TextStyle(color: Colors.black54, fontSize: 13),
-                  ),
-                if (item.operacao == 'transferencia')
-                  Text(
-                    'De ID: ${item.origemLocalId ?? 'N/A'} -> Para ID: ${item.destinoLocalId ?? 'N/A'}',
-                    style: const TextStyle(color: Colors.black54, fontSize: 13),
-                  ),
+                ),
                 const SizedBox(height: 4),
-                // Mostra tags (Lote, Responsável)
-                Wrap(
-                  spacing: 8.0,
-                  runSpacing: 4.0,
-                  children: [
-                    _MovTag(label: operacaoLabel, color: iconColor),
-                    if (item.lote != null) _MovTag(label: 'Lote: ${item.lote}'),
-                    if (item.responsavelId != null)
-                      _MovTag(label: 'Por ID: ${item.responsavelId}'),
-                  ],
+                Text(
+                  'Código: ${a.codigo}',
+                  style: const TextStyle(color: Colors.black54, fontSize: 12),
+                ),
+                const SizedBox(height: 2),
+                Text(
+                  a.origem,
+                  style: const TextStyle(color: Colors.black54, fontSize: 12),
+                ),
+                const SizedBox(height: 6),
+                Text(
+                  a.detalhe,
+                  style: const TextStyle(color: Colors.black87, fontSize: 12),
                 ),
               ],
             ),
-          ),
-          const SizedBox(width: 16),
-          // Mostra Quantidade e Data
-          Column(
-            crossAxisAlignment: CrossAxisAlignment.end,
-            children: [
-              Text(
-                'Qtd: ${item.quantidade ?? 0}',
-                style:
-                    const TextStyle(fontWeight: FontWeight.bold, fontSize: 14),
-              ),
-              const SizedBox(height: 4),
-              Text(
-                DateFormat('dd/MM/yy HH:mm').format(item.createdAt.toLocal()),
-                style: const TextStyle(color: Colors.black54, fontSize: 12),
-              ),
-            ],
           ),
         ],
       ),
     );
   }
 }
-
-/// Widget para a tag de informação.
-class _MovTag extends StatelessWidget {
-  final String label;
-  final Color? color;
-
-  const _MovTag({required this.label, this.color});
-
-  @override
-  Widget build(BuildContext context) {
-    final bgColor = color?.withOpacity(0.1) ?? Colors.grey.shade200;
-    final textColor = color ?? Colors.grey.shade700;
-
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
-      decoration: BoxDecoration(
-        color: bgColor,
-        borderRadius: BorderRadius.circular(6),
-      ),
-      child: Text(
-        label,
-        style: TextStyle(
-          color: textColor,
-          fontWeight: FontWeight.bold,
-          fontSize: 11,
-        ),
-      ),
-    );
-  }
-}
-

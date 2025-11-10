@@ -153,8 +153,14 @@ class PessoasPageState extends State<PessoasPage> {
         toolbarHeight: 80,
         backgroundColor: secondaryColor,
         elevation: 0,
-        flexibleSpace: const AnimatedNetworkBackground(numberOfParticles: 35, maxDistance: 50.0),
-        title: const Text('Gestão de Pessoas', style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
+        flexibleSpace: const AnimatedNetworkBackground(
+          numberOfParticles: 35,
+          maxDistance: 50.0,
+        ),
+        title: const Text(
+          'Pessoas',
+          style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold),
+        ),
         iconTheme: const IconThemeData(color: Colors.white),
         actions: [Padding(padding: const EdgeInsets.only(right: 20.0), child: Image.asset('assets/images/logo_metroSP.png', height: 50))],
       ),
