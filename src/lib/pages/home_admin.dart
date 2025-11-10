@@ -1,14 +1,14 @@
-import 'dart:io';
-import 'dart:math';
-import 'package:flutter/material.dart';
-import 'package:intl/intl.dart';
-import 'package:provider/provider.dart'; // <= ADICIONE
-import 'package:src/auth/auth_store.dart';
 import 'dart:async';
 import 'dart:convert';
+import 'dart:io';
+import 'dart:math';
+
+import 'package:flutter/material.dart';
+import 'package:intl/intl.dart';
+import 'package:provider/provider.dart';
 import 'package:http/http.dart' as http;
 
-// Import dos widgets que tem nessa página
+import 'package:src/auth/auth_store.dart';
 import '../widgets/admin/home_admin/admin_drawer.dart';
 import '../widgets/admin/home_admin/dashboard_card.dart';
 import '../widgets/admin/home_admin/recent_movements.dart';
@@ -16,15 +16,17 @@ import '../widgets/admin/home_admin/update_status_bar.dart';
 import '../widgets/admin/home_admin/quick_actions.dart';
 import 'animated_network_background.dart';
 
-const String ApiBaseUrl = 'http://localhost:8000';
+const String apiBaseUrl = 'http://localhost:8080';
+
+// ================= MODEL Movimentacao p/ lista recente =================
 
 class Movimentacao {
-  final String type;
-  final String title;
-  final String tag;
-  final String user;
-  final String time;
-  final String amount;
+  final String type; // entrada / saída / transferencia
+  final String title; // descrição do material
+  final String tag; // cod_sap
+  final String user; // exibimos id ou placeholder
+  final String time; // string formatada
+  final String amount; // ex: "10 UN"
 
   Movimentacao({
     required this.type,
@@ -35,32 +37,35 @@ class Movimentacao {
     required this.amount,
   });
 
-  // Factory constructor para criar a partir do JSON do backend
   factory Movimentacao.fromJson(Map<String, dynamic> json) {
-    // Pega o objeto 'material' aninhado
-    final material = json['material'] as Map<String, dynamic>? ?? {};
+    final material = (json['material'] as Map?) ?? {};
 
-    // Formata a data
-    String formattedTime = 'Data inválida';
-    try {
-      final dt = DateTime.parse(json['created_at'] as String);
-      formattedTime = DateFormat('dd/MM HH:mm').format(dt);
-    } catch (e) {
-      // Ignora erro de parsing, 'Data inválida' será usada
+    // data/hora
+    String formattedTime = '—';
+    final createdRaw = json['created_at'];
+    if (createdRaw is String) {
+      try {
+        final dt = DateTime.parse(createdRaw);
+        formattedTime = DateFormat('dd/MM HH:mm').format(dt);
+      } catch (_) {}
     }
 
+    final operacao = (json['operacao'] ?? '').toString();
+    final qtd = (json['quantidade'] as num?)?.toDouble() ?? 0;
+    final un = (material['unidade'] ?? '').toString();
+
     return Movimentacao(
-      type: json['operacao']?.toString() ?? 'desconhecido',
-      title: material['descricao']?.toString() ?? 'Material desconhecido',
-      tag: material['cod_sap']?.toString() ?? 'N/A',
-      // Backend retorna 'responsavel_id', não o nome.
-      user: 'Usuário #${json['responsavel_id']?.toString() ?? '??'}',
+      type: operacao,
+      title: (material['descricao'] ?? 'Material desconhecido').toString(),
+      tag: (material['cod_sap'] ?? 'N/A').toString(),
+      user: 'Usuário #${json['responsavel_id']?.toString() ?? '—'}',
       time: formattedTime,
-      amount:
-          '${json['quantidade']?.toString() ?? '0'} ${material['unidade']?.toString() ?? ''}',
+      amount: '${qtd.toStringAsFixed(qtd == qtd.roundToDouble() ? 0 : 2)} $un',
     );
   }
 }
+
+// ================= PÁGINA =================
 
 class HomeAdminPage extends StatefulWidget {
   const HomeAdminPage({super.key});
@@ -70,13 +75,22 @@ class HomeAdminPage extends StatefulWidget {
 }
 
 class _HomeAdminPageState extends State<HomeAdminPage> {
-  // Removido: AuthStore local e _loaded
   late DateTime _lastUpdated;
-  final ScrollController _scrollController = ScrollController();
+
+  // métricas do dashboard
+  bool _loadingStats = true;
+  int _totalMateriais = 0;
+  int _totalInstrumentosAtivos = 0;
+  int _totalSaidas = 0;
+  int _totalAlertas = 0; // ainda mock
+
+  // movimentações recentes
+  bool _loadingMovs = true;
+  String? _movsError;
   List<Movimentacao> _movimentacoes = [];
-  bool _isLoading = true;
-  String? _errorMessage;
-  bool _didFetchData = false;
+
+  final ScrollController _scrollController = ScrollController();
+  bool _initialized = false;
 
   @override
   void initState() {
@@ -87,94 +101,11 @@ class _HomeAdminPageState extends State<HomeAdminPage> {
   @override
   void didChangeDependencies() {
     super.didChangeDependencies();
-    if (!_didFetchData) {
-      _didFetchData = true;
+    if (!_initialized) {
+      _initialized = true;
+      _loadDashboardData();
       _fetchMovimentacoes();
     }
-  }
-
-  // MÉTODO PARA BUSCAR DADOS DO BACKEND
-  Future<void> _fetchMovimentacoes() async {
-    // Se não estiver montado, não faz nada
-    if (!mounted) return;
-
-    setState(() {
-      _isLoading = true;
-      _errorMessage = null;
-    });
-
-    try {
-      final auth = context.read<AuthStore>();
-      if (auth.token == null) {
-        throw Exception('Token de autenticação não encontrado.');
-      }
-
-      // Usando o endpoint de listagem (index.dart)
-      // Vamos buscar apenas as 10 mais recentes
-      final url = Uri.parse('$ApiBaseUrl/movimentacoes?limit=10');
-
-      final response = await http
-          .get(
-            url,
-            headers: {
-              'Authorization': 'Bearer ${auth.token}',
-              'Content-Type': 'application/json',
-            },
-          )
-          .timeout(const Duration(seconds: 10));
-
-      if (!mounted) return;
-
-      if (response.statusCode == 200) {
-        final jsonBody = json.decode(response.body);
-        final dataList = jsonBody['data'] as List;
-        final movements = dataList
-            .map((item) => Movimentacao.fromJson(item as Map<String, dynamic>))
-            .toList();
-
-        setState(() {
-          _movimentacoes = movements;
-          _lastUpdated = DateTime.now();
-          _isLoading = false;
-        });
-      } else if (response.statusCode == 401) {
-        // Token expirado ou inválido
-        setState(() {
-          _errorMessage = 'Sessão expirada. Faça login novamente.';
-          _isLoading = false;
-        });
-        // Desloga o usuário
-        auth.logout();
-      } else {
-        // Outros erros HTTP
-        throw Exception('Falha ao carregar dados: ${response.statusCode}');
-      }
-    } on TimeoutException {
-      if (!mounted) return;
-      setState(() {
-        _errorMessage = 'Tempo de conexão esgotado. Tente novamente.';
-        _isLoading = false;
-      });
-    } on SocketException {
-      if (!mounted) return;
-      setState(() {
-        _errorMessage = 'Sem conexão com a rede ou servidor offline.';
-        _isLoading = false;
-      });
-    } catch (e) {
-      if (!mounted) return;
-      setState(() {
-        _errorMessage = e.toString();
-        _isLoading = false;
-      });
-    }
-  }
-
-  void _atualizarDados() {
-    setState(() {
-      _lastUpdated = DateTime.now();
-      _movimentacoes.shuffle(Random());
-    });
   }
 
   @override
@@ -183,14 +114,168 @@ class _HomeAdminPageState extends State<HomeAdminPage> {
     super.dispose();
   }
 
+  // ================= CHAMADAS DE API =================
+
+  Map<String, String> _authHeaders(AuthStore auth) => {
+    'Authorization': 'Bearer ${auth.token}',
+    'Content-Type': 'application/json',
+  };
+
+  Future<void> _loadDashboardData() async {
+    final auth = context.read<AuthStore>();
+    if (auth.token == null) {
+      setState(() => _loadingStats = false);
+      return;
+    }
+
+    setState(() => _loadingStats = true);
+
+    try {
+      final headers = _authHeaders(auth);
+
+      // 1) Total de materiais (usa 'total' da listagem paginada)
+      final resMat = await http.get(
+        Uri.parse('$apiBaseUrl/materiais?page=1&limit=1'),
+        headers: headers,
+      );
+      if (resMat.statusCode != 200) {
+        throw Exception('Erro ao buscar materiais: ${resMat.statusCode}');
+      }
+      final matJson =
+          jsonDecode(utf8.decode(resMat.bodyBytes)) as Map<String, dynamic>;
+      final totalMateriais = (matJson['total'] ?? 0) as int;
+
+      // 2) Instrumentos ativos
+      final resInst = await http.get(
+        Uri.parse('$apiBaseUrl/instrumentos'),
+        headers: headers,
+      );
+      if (resInst.statusCode != 200) {
+        throw Exception('Erro ao buscar instrumentos: ${resInst.statusCode}');
+      }
+      final instList = jsonDecode(utf8.decode(resInst.bodyBytes));
+      int ativos = 0;
+      if (instList is List) {
+        ativos = instList
+            .where(
+              (i) =>
+                  (i is Map) &&
+                  (i['ativo'] == true ||
+                      (i['status']?.toString().toLowerCase() == 'ativo')),
+            )
+            .length;
+      }
+
+      // 3) Total de saídas (retiradas)
+      final resSaidas = await http.get(
+        Uri.parse('$apiBaseUrl/movimentacoes?operacao=saida&page=1&limit=1'),
+        headers: headers,
+      );
+      if (resSaidas.statusCode != 200) {
+        throw Exception('Erro ao buscar retiradas: ${resSaidas.statusCode}');
+      }
+      final saidasJson =
+          jsonDecode(utf8.decode(resSaidas.bodyBytes)) as Map<String, dynamic>;
+      final totalSaidas = (saidasJson['total'] ?? 0) as int;
+
+      // 4) Alertas - ainda não implementado no back: mantemos 0 por enquanto
+      const totalAlertas = 0;
+
+      if (!mounted) return;
+      setState(() {
+        _totalMateriais = totalMateriais;
+        _totalInstrumentosAtivos = ativos;
+        _totalSaidas = totalSaidas;
+        _totalAlertas = totalAlertas;
+        _lastUpdated = DateTime.now();
+        _loadingStats = false;
+      });
+    } on SocketException {
+      if (!mounted) return;
+      setState(() => _loadingStats = false);
+    } catch (e) {
+      if (!mounted) return;
+      print('Erro ao carregar métricas do dashboard: $e');
+      setState(() => _loadingStats = false);
+    }
+  }
+
+  Future<void> _fetchMovimentacoes() async {
+    final auth = context.read<AuthStore>();
+    if (auth.token == null) {
+      setState(() {
+        _loadingMovs = false;
+        _movsError = 'Token não encontrado. Faça login novamente.';
+      });
+      return;
+    }
+
+    setState(() {
+      _loadingMovs = true;
+      _movsError = null;
+    });
+
+    try {
+      final headers = _authHeaders(auth);
+      // busca últimas 10 movimentações
+      final res = await http.get(
+        Uri.parse('$apiBaseUrl/movimentacoes?page=1&limit=10'),
+        headers: headers,
+      );
+
+      if (res.statusCode == 200) {
+        final body =
+            jsonDecode(utf8.decode(res.bodyBytes)) as Map<String, dynamic>;
+        final list = (body['data'] as List? ?? [])
+            .map((e) => Movimentacao.fromJson(e as Map<String, dynamic>))
+            .toList();
+
+        if (!mounted) return;
+        setState(() {
+          _movimentacoes = list;
+          _loadingMovs = false;
+          _lastUpdated = DateTime.now();
+        });
+      } else if (res.statusCode == 401) {
+        if (!mounted) return;
+        setState(() {
+          _movsError = 'Sessão expirada. Faça login novamente.';
+          _loadingMovs = false;
+        });
+        auth.logout();
+      } else {
+        throw Exception('Status ${res.statusCode}');
+      }
+    } on SocketException {
+      if (!mounted) return;
+      setState(() {
+        _movsError = 'Sem conexão com o servidor.';
+        _loadingMovs = false;
+      });
+    } catch (e) {
+      if (!mounted) return;
+      print('Erro ao buscar movimentações: $e');
+      setState(() {
+        _movsError = 'Erro ao carregar movimentações.';
+        _loadingMovs = false;
+      });
+    }
+  }
+
+  void _atualizarDados() {
+    _loadDashboardData();
+    _fetchMovimentacoes();
+  }
+
+  // ================= BUILD =================
+
   @override
   Widget build(BuildContext context) {
-    // Lê AuthStore centralizado
     final auth = context.watch<AuthStore>();
 
-    // Se não autenticado, redireciona
     if (!auth.isAuthenticated) {
-      Future.microtask(() => Navigator.pushReplacementNamed(context, '/login'));
+      // se cair aqui, volta pra login
+      Future.microtask(() => Navigator.pushReplacementNamed(context, '/'));
       return const Scaffold(body: Center(child: CircularProgressIndicator()));
     }
 
@@ -199,7 +284,6 @@ class _HomeAdminPageState extends State<HomeAdminPage> {
     final isDesktop = MediaQuery.of(context).size.width > 768;
 
     return Scaffold(
-      // Titulo
       backgroundColor: primaryColor,
       appBar: AppBar(
         toolbarHeight: 80,
@@ -221,13 +305,10 @@ class _HomeAdminPageState extends State<HomeAdminPage> {
           ),
         ],
       ),
-
-      // Drawer agora lê o AuthStore via Provider internamente (sem passar auth)
       drawer: const AdminDrawer(
-        primaryColor: Color(0xFF080023),
-        secondaryColor: Color.fromARGB(255, 0, 14, 92),
+        primaryColor: primaryColor,
+        secondaryColor: secondaryColor,
       ),
-
       body: SingleChildScrollView(
         child: Padding(
           padding: const EdgeInsets.all(24.0),
@@ -258,10 +339,7 @@ class _HomeAdminPageState extends State<HomeAdminPage> {
                   ? _buildDesktopGrid(isDesktop)
                   : _buildMobileList(isDesktop),
               const SizedBox(height: 40),
-              RecentMovements(
-                scrollController: _scrollController,
-                isDesktop: isDesktop,
-              ),
+              _buildMovimentacoesSection(isDesktop),
               const SizedBox(height: 40),
               const QuickActions(),
             ],
@@ -271,30 +349,35 @@ class _HomeAdminPageState extends State<HomeAdminPage> {
     );
   }
 
+  // ================= SEÇÕES =================
+
   Widget _buildMovimentacoesSection(bool isDesktop) {
-    if (_isLoading) {
+    if (_loadingMovs) {
       return const Center(
         child: CircularProgressIndicator(color: Colors.white),
       );
     }
 
-    if (_errorMessage != null) {
-      return Center(
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            Text(
-              'Erro ao carregar movimentações:\n$_errorMessage',
-              textAlign: TextAlign.center,
-              style: const TextStyle(color: Colors.red, fontSize: 16),
+    if (_movsError != null) {
+      return Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const Text(
+            'Movimentações recentes',
+            style: TextStyle(
+              color: Colors.white,
+              fontSize: 22,
+              fontWeight: FontWeight.bold,
             ),
-            const SizedBox(height: 16),
-            ElevatedButton(
-              onPressed: _fetchMovimentacoes,
-              child: const Text('Tentar Novamente'),
-            ),
-          ],
-        ),
+          ),
+          const SizedBox(height: 12),
+          Text(_movsError!, style: const TextStyle(color: Colors.redAccent)),
+          const SizedBox(height: 8),
+          ElevatedButton(
+            onPressed: _fetchMovimentacoes,
+            child: const Text('Tentar novamente'),
+          ),
+        ],
       );
     }
 
@@ -304,8 +387,12 @@ class _HomeAdminPageState extends State<HomeAdminPage> {
     );
   }
 
-  // Layouts
   Widget _buildDesktopGrid(bool isDesktop) {
+    String mat = _loadingStats ? '...' : _totalMateriais.toString();
+    String inst = _loadingStats ? '...' : _totalInstrumentosAtivos.toString();
+    String saidas = _loadingStats ? '...' : _totalSaidas.toString();
+    String alertas = _loadingStats ? '...' : _totalAlertas.toString();
+
     return GridView.count(
       shrinkWrap: true,
       physics: const NeverScrollableScrollPhysics(),
@@ -317,28 +404,28 @@ class _HomeAdminPageState extends State<HomeAdminPage> {
         DashboardCard(
           isDesktop: isDesktop,
           title: 'Total de Materiais:',
-          value: '10.167',
+          value: mat,
           icon: Icons.inventory_2_outlined,
           iconBackgroundColor: Colors.blue.shade700,
         ),
         DashboardCard(
           isDesktop: isDesktop,
           title: 'Instrumentos Ativos:',
-          value: '70',
+          value: inst,
           icon: Icons.handyman_outlined,
           iconBackgroundColor: Colors.green.shade600,
         ),
         DashboardCard(
           isDesktop: isDesktop,
-          title: 'Retiradas:',
-          value: '2',
+          title: 'Retiradas (saídas):',
+          value: saidas,
           icon: Icons.outbox_outlined,
           iconBackgroundColor: Colors.orange.shade700,
         ),
         DashboardCard(
           isDesktop: isDesktop,
           title: 'Alertas Ativos:',
-          value: '5',
+          value: alertas,
           icon: Icons.warning_amber_rounded,
           iconBackgroundColor: Colors.red.shade600,
         ),
@@ -347,46 +434,46 @@ class _HomeAdminPageState extends State<HomeAdminPage> {
   }
 
   Widget _buildMobileList(bool isDesktop) {
-    final cardData = [
-      {
-        'title': 'Total de Materiais:',
-        'value': '10.167',
-        'icon': Icons.inventory_2_outlined,
-        'color': Colors.blue.shade700,
-      },
-      {
-        'title': 'Instrumentos Ativos:',
-        'value': '70',
-        'icon': Icons.handyman_outlined,
-        'color': Colors.green.shade600,
-      },
-      {
-        'title': 'Retiradas:',
-        'value': '2',
-        'icon': Icons.outbox_outlined,
-        'color': Colors.orange.shade700,
-      },
-      {
-        'title': 'Alertas Ativos:',
-        'value': '5',
-        'icon': Icons.warning_amber_rounded,
-        'color': Colors.red.shade600,
-      },
+    final items = [
+      (
+        'Total de Materiais:',
+        _loadingStats ? '...' : _totalMateriais.toString(),
+        Icons.inventory_2_outlined,
+        Colors.blue.shade700,
+      ),
+      (
+        'Instrumentos Ativos:',
+        _loadingStats ? '...' : _totalInstrumentosAtivos.toString(),
+        Icons.handyman_outlined,
+        Colors.green.shade600,
+      ),
+      (
+        'Retiradas (saídas):',
+        _loadingStats ? '...' : _totalSaidas.toString(),
+        Icons.outbox_outlined,
+        Colors.orange.shade700,
+      ),
+      (
+        'Alertas Ativos:',
+        _loadingStats ? '...' : _totalAlertas.toString(),
+        Icons.warning_amber_rounded,
+        Colors.red.shade600,
+      ),
     ];
 
     return ListView.separated(
       shrinkWrap: true,
       physics: const NeverScrollableScrollPhysics(),
-      itemCount: cardData.length,
-      separatorBuilder: (context, index) => const SizedBox(height: 20),
+      itemCount: items.length,
+      separatorBuilder: (_, __) => const SizedBox(height: 20),
       itemBuilder: (context, index) {
-        final data = cardData[index];
+        final (title, value, icon, color) = items[index];
         return DashboardCard(
           isDesktop: isDesktop,
-          title: data['title'] as String,
-          value: data['value'] as String,
-          icon: data['icon'] as IconData,
-          iconBackgroundColor: data['color'] as Color,
+          title: title,
+          value: value,
+          icon: icon,
+          iconBackgroundColor: color,
         );
       },
     );
