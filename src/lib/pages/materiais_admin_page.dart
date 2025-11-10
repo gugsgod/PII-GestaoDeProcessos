@@ -65,12 +65,6 @@ class _MateriaisAdminPageState extends State<MateriaisAdminPage> {
   String? _errorMessage;
   List<MaterialItem> _materiais = [];
 
-  // Estados para controlar o carregamento e erros da API
-  bool _isLoading = true;
-  String? _erroMessage;
-  List<MaterialItem> _materiais = [];
-
-
   @override
   void initState() {
     super.initState();

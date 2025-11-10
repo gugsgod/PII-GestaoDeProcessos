@@ -87,7 +87,7 @@ Future<Response> _post(RequestContext context) async {
   final nome = (data['nome'] as String?)?.trim();
   final email = (data['email'] as String?)?.trim().toLowerCase();
   final senha = data['senha'] as String?;
-  final funcao = (data['funcao'] as String?)?.trim();
+  final funcao = (data['funcao'] as String?)?.trim(); 
 
   if (nome == null || nome.isEmpty) {
     return Response.json(statusCode: 400, body: {'error': 'Informe o nome.'});
@@ -99,6 +99,13 @@ Future<Response> _post(RequestContext context) async {
     return Response.json(
       statusCode: 400,
       body: {'error': 'Senha muito curta (mínimo 8 caracteres).'},
+    );
+  }
+
+  if (funcao != 'admin' && funcao != 'tecnico') {
+     return Response.json(
+      statusCode: 400,
+      body: {'error': 'Função inválida recebida: $funcao'},
     );
   }
 
@@ -122,9 +129,16 @@ Future<Response> _post(RequestContext context) async {
     final user = result.first.toColumnMap();
     return Response.json(statusCode: 201, body: user);
   } on PgException catch (e) {
-    if (e.message.contains('23505') == true) {
+    if (e.message.contains('23505') == true) { // Unique violation (email)
       return Response.json(statusCode: 409, body: {'error': 'E-mail já cadastrado.'});
     }
+    if (e.message.contains('23514') == true) { // Check constraint
+      // ignore: avoid_print
+      print('ERRO DE CHECK CONSTRAINT: $e. Valor enviado: $funcao');
+      return Response.json(statusCode: 400, body: {'error': 'Valor de função inválido para o banco de dados.'});
+    }
+    // ignore: avoid_print
+    print('Erro de PG: $e');
     rethrow;
   }
 }

@@ -525,8 +525,8 @@ class _AddUserDialogState extends State<_AddUserDialog> {
   
   // FIX: Mapeia o valor de display (chave) para o valor da API (valor)
   final Map<String, String> _funcoesMap = {
-    'Técnico': 'técnico',
-    'Administrador': 'administrador',
+    'Técnico': 'Tecnico',
+    'Administrador': 'admin',
   };
   
   // Armazena o valor de display (o que o usuário vê)
