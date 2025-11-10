@@ -1,3 +1,4 @@
+// lib/pages/home_admin.dart
 import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
@@ -21,10 +22,10 @@ const String apiBaseUrl = 'http://localhost:8080';
 // ================= MODEL Movimentacao p/ lista recente =================
 
 class Movimentacao {
-  final String type; // entrada / saída / transferencia
+  final String type; // entrada / saida / transferencia
   final String title; // descrição do material
   final String tag; // cod_sap
-  final String user; // exibimos id ou placeholder
+  final String user; // exibe id do usuário
   final String time; // string formatada
   final String amount; // ex: "10 UN"
 
@@ -40,7 +41,7 @@ class Movimentacao {
   factory Movimentacao.fromJson(Map<String, dynamic> json) {
     final material = (json['material'] as Map?) ?? {};
 
-    // data/hora
+    // Data/hora
     String formattedTime = '—';
     final createdRaw = json['created_at'];
     if (createdRaw is String) {
@@ -54,13 +55,16 @@ class Movimentacao {
     final qtd = (json['quantidade'] as num?)?.toDouble() ?? 0;
     final un = (material['unidade'] ?? '').toString();
 
+    final isInt = qtd == qtd.roundToDouble();
+    final qtdStr = isInt ? qtd.toStringAsFixed(0) : qtd.toStringAsFixed(2);
+
     return Movimentacao(
       type: operacao,
       title: (material['descricao'] ?? 'Material desconhecido').toString(),
       tag: (material['cod_sap'] ?? 'N/A').toString(),
       user: 'Usuário #${json['responsavel_id']?.toString() ?? '—'}',
       time: formattedTime,
-      amount: '${qtd.toStringAsFixed(qtd == qtd.roundToDouble() ? 0 : 2)} $un',
+      amount: '$qtdStr $un',
     );
   }
 }
@@ -82,7 +86,7 @@ class _HomeAdminPageState extends State<HomeAdminPage> {
   int _totalMateriais = 0;
   int _totalInstrumentosAtivos = 0;
   int _totalSaidas = 0;
-  int _totalAlertas = 0; // ainda mock
+  int _totalAlertas = 0; // calculado dinamicamente
 
   // movimentações recentes
   bool _loadingMovs = true;
@@ -114,12 +118,14 @@ class _HomeAdminPageState extends State<HomeAdminPage> {
     super.dispose();
   }
 
-  // ================= CHAMADAS DE API =================
+  // ================= HELPERS =================
 
   Map<String, String> _authHeaders(AuthStore auth) => {
     'Authorization': 'Bearer ${auth.token}',
     'Content-Type': 'application/json',
   };
+
+  // ================= CHAMADAS DE API (MÉTRICAS) =================
 
   Future<void> _loadDashboardData() async {
     final auth = context.read<AuthStore>();
@@ -145,7 +151,7 @@ class _HomeAdminPageState extends State<HomeAdminPage> {
           jsonDecode(utf8.decode(resMat.bodyBytes)) as Map<String, dynamic>;
       final totalMateriais = (matJson['total'] ?? 0) as int;
 
-      // 2) Instrumentos ativos
+      // 2) Instrumentos ativos + calibração vencida
       final resInst = await http.get(
         Uri.parse('$apiBaseUrl/instrumentos'),
         headers: headers,
@@ -154,16 +160,35 @@ class _HomeAdminPageState extends State<HomeAdminPage> {
         throw Exception('Erro ao buscar instrumentos: ${resInst.statusCode}');
       }
       final instList = jsonDecode(utf8.decode(resInst.bodyBytes));
+
       int ativos = 0;
+      int calibVencida = 0;
       if (instList is List) {
-        ativos = instList
-            .where(
-              (i) =>
-                  (i is Map) &&
-                  (i['ativo'] == true ||
-                      (i['status']?.toString().toLowerCase() == 'ativo')),
-            )
-            .length;
+        final now = DateTime.now();
+        for (final raw in instList) {
+          if (raw is! Map) continue;
+
+          final statusStr = raw['status']?.toString().toLowerCase() ?? '';
+          final ativoFlag = raw['ativo'] == true;
+
+          final isAtivo =
+              ativoFlag || statusStr == 'ativo' || statusStr == 'em_uso';
+
+          if (isAtivo) {
+            ativos++;
+          }
+
+          final calRaw = raw['proxima_calibracao_em'];
+          if (calRaw is String && calRaw.isNotEmpty) {
+            try {
+              final dt = DateTime.parse(calRaw);
+              if (!dt.isAfter(now)) {
+                // já venceu ou vence hoje
+                calibVencida++;
+              }
+            } catch (_) {}
+          }
+        }
       }
 
       // 3) Total de saídas (retiradas)
@@ -178,8 +203,20 @@ class _HomeAdminPageState extends State<HomeAdminPage> {
           jsonDecode(utf8.decode(resSaidas.bodyBytes)) as Map<String, dynamic>;
       final totalSaidas = (saidasJson['total'] ?? 0) as int;
 
-      // 4) Alertas - ainda não implementado no back: mantemos 0 por enquanto
-      const totalAlertas = 0;
+      // 4) Materiais abaixo do mínimo (/estoque/minimos)
+      final resMin = await http.get(
+        Uri.parse('$apiBaseUrl/estoque/minimos?page=1&limit=1'),
+        headers: headers,
+      );
+      int abaixoMinimo = 0;
+      if (resMin.statusCode == 200) {
+        final minJson =
+            jsonDecode(utf8.decode(resMin.bodyBytes)) as Map<String, dynamic>;
+        abaixoMinimo = (minJson['total'] ?? 0) as int;
+      }
+
+      // Alertas = materiais abaixo do mínimo + instrumentos com calibração vencida
+      final totalAlertas = abaixoMinimo + calibVencida;
 
       if (!mounted) return;
       setState(() {
@@ -200,6 +237,8 @@ class _HomeAdminPageState extends State<HomeAdminPage> {
     }
   }
 
+  // ================= CHAMADAS DE API (MOVIMENTAÇÕES) =================
+
   Future<void> _fetchMovimentacoes() async {
     final auth = context.read<AuthStore>();
     if (auth.token == null) {
@@ -217,7 +256,6 @@ class _HomeAdminPageState extends State<HomeAdminPage> {
 
     try {
       final headers = _authHeaders(auth);
-      // busca últimas 10 movimentações
       final res = await http.get(
         Uri.parse('$apiBaseUrl/movimentacoes?page=1&limit=10'),
         headers: headers,
@@ -274,7 +312,6 @@ class _HomeAdminPageState extends State<HomeAdminPage> {
     final auth = context.watch<AuthStore>();
 
     if (!auth.isAuthenticated) {
-      // se cair aqui, volta pra login
       Future.microtask(() => Navigator.pushReplacementNamed(context, '/'));
       return const Scaffold(body: Center(child: CircularProgressIndicator()));
     }
@@ -378,6 +415,13 @@ class _HomeAdminPageState extends State<HomeAdminPage> {
             child: const Text('Tentar novamente'),
           ),
         ],
+      );
+    }
+
+    if (_movimentacoes.isEmpty) {
+      return const Text(
+        'Sem movimentações recentes.',
+        style: TextStyle(color: Colors.white70),
       );
     }
 
