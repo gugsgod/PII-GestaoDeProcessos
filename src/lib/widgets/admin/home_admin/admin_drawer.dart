@@ -1,10 +1,17 @@
-// admin_drawer.dart
+// lib/widgets/admin/home_admin/admin_drawer.dart
+import 'dart:convert';
+import 'dart:io';
+
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
+import 'package:http/http.dart' as http;
+
 import 'package:src/auth/auth_store.dart';
 import 'package:src/services/capitalize.dart';
 
-class AdminDrawer extends StatelessWidget {
+const String apiBaseUrl = 'http://localhost:8080';
+
+class AdminDrawer extends StatefulWidget {
   final Color primaryColor;
   final Color secondaryColor;
 
@@ -14,20 +21,139 @@ class AdminDrawer extends StatelessWidget {
     required this.secondaryColor,
   });
 
+  @override
+  State<AdminDrawer> createState() => _AdminDrawerState();
+}
+
+class _QuickStatus {
+  final int alertas;
+  final int instrumentosAtivos;
+  final int materiais;
+
+  const _QuickStatus({
+    required this.alertas,
+    required this.instrumentosAtivos,
+    required this.materiais,
+  });
+}
+
+class _AdminDrawerState extends State<AdminDrawer> {
+  late Future<_QuickStatus?> _statusFuture;
+  bool _initialized = false;
+
   String _initial(String? name) {
     final n = (name ?? '').trim();
     return n.isNotEmpty ? n[0].toUpperCase() : 'U';
   }
 
+  Map<String, String> _authHeaders(AuthStore auth) => {
+    'Authorization': 'Bearer ${auth.token}',
+    'Content-Type': 'application/json',
+  };
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    if (!_initialized) {
+      _initialized = true;
+      final auth = context.read<AuthStore>();
+      _statusFuture = _fetchQuickStatus(auth);
+    }
+  }
+
+  Future<_QuickStatus?> _fetchQuickStatus(AuthStore auth) async {
+    if (!auth.isAuthenticated || auth.token == null) return null;
+
+    try {
+      final headers = _authHeaders(auth);
+
+      // 1) Materiais (usa total da listagem)
+      final resMat = await http.get(
+        Uri.parse('$apiBaseUrl/materiais?page=1&limit=1'),
+        headers: headers,
+      );
+      if (resMat.statusCode != 200) {
+        throw Exception('materiais: ${resMat.statusCode}');
+      }
+      final matJson =
+          jsonDecode(utf8.decode(resMat.bodyBytes)) as Map<String, dynamic>;
+      final totalMateriais = (matJson['total'] ?? 0) as int;
+
+      // 2) Instrumentos ativos + calibração vencida
+      final resInst = await http.get(
+        Uri.parse('$apiBaseUrl/instrumentos'),
+        headers: headers,
+      );
+      if (resInst.statusCode != 200) {
+        throw Exception('instrumentos: ${resInst.statusCode}');
+      }
+      final instList = jsonDecode(utf8.decode(resInst.bodyBytes));
+
+      int ativos = 0;
+      int calibVencida = 0;
+      if (instList is List) {
+        final now = DateTime.now();
+        for (final raw in instList) {
+          if (raw is! Map) continue;
+
+          final statusStr = raw['status']?.toString().toLowerCase() ?? '';
+          final ativoFlag = raw['ativo'] == true;
+
+          final isAtivo =
+              ativoFlag || statusStr == 'ativo' || statusStr == 'em_uso';
+
+          if (isAtivo) {
+            ativos++;
+          }
+
+          final calRaw = raw['proxima_calibracao_em'];
+          if (calRaw is String && calRaw.isNotEmpty) {
+            try {
+              final dt = DateTime.parse(calRaw);
+              if (!dt.isAfter(now)) {
+                calibVencida++;
+              }
+            } catch (_) {}
+          }
+        }
+      }
+
+      // 3) Materiais abaixo do mínimo
+      final resMin = await http.get(
+        Uri.parse('$apiBaseUrl/estoque/minimos?page=1&limit=1'),
+        headers: headers,
+      );
+      int abaixoMinimo = 0;
+      if (resMin.statusCode == 200) {
+        final minJson =
+            jsonDecode(utf8.decode(resMin.bodyBytes)) as Map<String, dynamic>;
+        abaixoMinimo = (minJson['total'] ?? 0) as int;
+      }
+
+      final alertas = abaixoMinimo + calibVencida;
+
+      return _QuickStatus(
+        alertas: alertas,
+        instrumentosAtivos: ativos,
+        materiais: totalMateriais,
+      );
+    } on SocketException catch (e) {
+      print('QuickStatus socket error: $e');
+      return null;
+    } catch (e) {
+      print('QuickStatus error: $e');
+      return null;
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
-    // Lê o AuthStore centralizado via Provider
     final auth = context.watch<AuthStore>();
     final displayName = (auth.name ?? 'Usuário').capitalize();
     final displayRole = auth.role == 'admin' ? 'Administrador' : 'Usuário';
 
     return Drawer(
-      backgroundColor: secondaryColor,
+      backgroundColor: widget.secondaryColor,
       shape: const RoundedRectangleBorder(borderRadius: BorderRadius.zero),
       child: Column(
         children: [
@@ -36,7 +162,7 @@ class AdminDrawer extends StatelessWidget {
               padding: EdgeInsets.zero,
               children: [
                 UserAccountsDrawerHeader(
-                  decoration: BoxDecoration(color: primaryColor),
+                  decoration: BoxDecoration(color: widget.primaryColor),
                   accountName: Text(
                     displayName,
                     style: const TextStyle(
@@ -77,7 +203,7 @@ class AdminDrawer extends StatelessWidget {
                   icon: Icons.build_outlined,
                   text: 'Instrumentos',
                   onTap: () {
-                    Navigator.pop(context); // Fecha o drawer
+                    Navigator.pop(context);
                     Navigator.pushReplacementNamed(context, '/instrumentos');
                   },
                 ),
@@ -101,31 +227,79 @@ class AdminDrawer extends StatelessWidget {
                   icon: Icons.sync_alt_outlined,
                   text: 'Movimentações',
                   onTap: () {
+                    Navigator.pop(context);
                     Navigator.pushReplacementNamed(context, '/movimentacoes');
                   },
                 ),
                 const SizedBox(height: 24),
                 _buildSectionTitle('STATUS RÁPIDO'),
-                _buildStatusItem(
-                  dotColor: Colors.yellow.shade700,
-                  text: 'Alertas ativos',
-                  count: 10,
-                  pillColor: const Color(0xFF5A5A5A),
-                  pillBorderColor: const Color(0xFFA3A13C),
-                ),
-                _buildStatusItem(
-                  dotColor: Colors.green.shade600,
-                  text: 'Instrumentos ativos',
-                  count: 356,
-                  pillColor: const Color(0xFF0B4F3E),
-                  pillBorderColor: const Color(0xFF22C55E),
-                ),
-                _buildStatusItem(
-                  dotColor: Colors.green.shade600,
-                  text: 'Materiais ativos',
-                  count: 501,
-                  pillColor: const Color(0xFF0B4F3E),
-                  pillBorderColor: const Color(0xFF22C55E),
+                FutureBuilder<_QuickStatus?>(
+                  future: _statusFuture,
+                  builder: (context, snapshot) {
+                    if (snapshot.connectionState == ConnectionState.waiting) {
+                      // loading: mostra placeholders
+                      return Column(
+                        children: [
+                          _buildStatusItem(
+                            dotColor: Colors.yellow.shade700,
+                            text: 'Alertas ativos',
+                            value: '...',
+                            pillColor: const Color(0xFF5A5A5A),
+                            pillBorderColor: const Color(0xFFA3A13C),
+                          ),
+                          _buildStatusItem(
+                            dotColor: Colors.green.shade600,
+                            text: 'Instrumentos ativos',
+                            value: '...',
+                            pillColor: const Color(0xFF0B4F3E),
+                            pillBorderColor: const Color(0xFF22C55E),
+                          ),
+                          _buildStatusItem(
+                            dotColor: Colors.green.shade600,
+                            text: 'Materiais ativos',
+                            value: '...',
+                            pillColor: const Color(0xFF0B4F3E),
+                            pillBorderColor: const Color(0xFF22C55E),
+                          ),
+                        ],
+                      );
+                    }
+
+                    if (snapshot.hasError) {
+                      print('Erro QuickStatus drawer: ${snapshot.error}');
+                    }
+
+                    final data = snapshot.data;
+                    final alertas = data?.alertas.toString() ?? '-';
+                    final inst = data?.instrumentosAtivos.toString() ?? '-';
+                    final mats = data?.materiais.toString() ?? '-';
+
+                    return Column(
+                      children: [
+                        _buildStatusItem(
+                          dotColor: Colors.yellow.shade700,
+                          text: 'Alertas ativos',
+                          value: alertas,
+                          pillColor: const Color(0xFF5A5A5A),
+                          pillBorderColor: const Color(0xFFA3A13C),
+                        ),
+                        _buildStatusItem(
+                          dotColor: Colors.green.shade600,
+                          text: 'Instrumentos ativos',
+                          value: inst,
+                          pillColor: const Color(0xFF0B4F3E),
+                          pillBorderColor: const Color(0xFF22C55E),
+                        ),
+                        _buildStatusItem(
+                          dotColor: Colors.green.shade600,
+                          text: 'Materiais ativos',
+                          value: mats,
+                          pillColor: const Color(0xFF0B4F3E),
+                          pillBorderColor: const Color(0xFF22C55E),
+                        ),
+                      ],
+                    );
+                  },
                 ),
               ],
             ),
@@ -135,7 +309,7 @@ class AdminDrawer extends StatelessWidget {
             icon: Icons.logout,
             text: 'Sair',
             onTap: () async {
-              await auth.logout(); // limpa token/claims
+              await auth.logout();
               if (context.mounted) {
                 Navigator.pushReplacementNamed(context, '/');
               }
@@ -146,7 +320,8 @@ class AdminDrawer extends StatelessWidget {
     );
   }
 
-  // Helpers
+  // Helpers UI
+
   Widget _buildSectionTitle(String title) {
     return Padding(
       padding: const EdgeInsets.fromLTRB(16, 16, 16, 8),
@@ -172,7 +347,7 @@ class AdminDrawer extends StatelessWidget {
   Widget _buildStatusItem({
     required Color dotColor,
     required String text,
-    required int count,
+    required String value,
     required Color pillColor,
     required Color pillBorderColor,
   }) {
@@ -200,7 +375,7 @@ class AdminDrawer extends StatelessWidget {
               border: Border.all(color: pillBorderColor, width: 1.5),
             ),
             child: Text(
-              '$count',
+              value,
               style: TextStyle(
                 color: pillBorderColor,
                 fontWeight: FontWeight.bold,

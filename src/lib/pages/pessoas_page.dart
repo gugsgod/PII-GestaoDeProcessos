@@ -176,7 +176,7 @@ class PessoasPageState extends State<PessoasPage> {
           maxDistance: 50.0,
         ),
         title: const Text(
-          'Materiais',
+          'Pessoas',
           style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold),
         ),
         iconTheme: const IconThemeData(color: Colors.white),
