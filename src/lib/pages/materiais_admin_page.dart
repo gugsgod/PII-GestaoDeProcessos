@@ -1,4 +1,5 @@
 import 'dart:convert';
+import 'dart:math';
 import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
 import '../widgets/admin/home_admin/admin_drawer.dart';
@@ -120,6 +121,142 @@ class _MateriaisAdminPageState extends State<MateriaisAdminPage> {
     _fetchMateriais();
   }
 
+  void _showAddMaterialDialog() {
+    final TextEditingController codigoController = TextEditingController();
+    final TextEditingController nomeController = TextEditingController();
+    final TextEditingController estoqueController = TextEditingController();
+    String categoriaSelecionada = 'Cabos';
+    String statusSelecionado = 'Ativo';
+
+    showDialog(
+      context: context,
+      builder: (BuildContext context) {
+        return AlertDialog(
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+          title: const Text(
+            'Adicionar Novo Material',
+            style: TextStyle(fontWeight: FontWeight.bold),
+          ),
+          content: SingleChildScrollView(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                TextField(
+                  controller: codigoController,
+                  keyboardType: TextInputType.number,
+                  decoration: const InputDecoration(
+                    labelText: 'Código',
+                    border: OutlineInputBorder(),
+                  ),
+                ),
+                const SizedBox(height: 16),
+                TextField(
+                  controller: nomeController,
+                  decoration: const InputDecoration(
+                    labelText: 'Nome',
+                    border: OutlineInputBorder(),
+                  ),
+                ),
+                const SizedBox(height: 16),
+                DropdownButtonFormField<String>(
+                  value: categoriaSelecionada,
+                  decoration: const InputDecoration(
+                    labelText: 'Categoria',
+                    border: OutlineInputBorder(),
+                  ),
+                  items: const [
+                    DropdownMenuItem(value: 'Cabos', child: Text('Cabos')),
+                    DropdownMenuItem(value: 'Relés', child: Text('Relés')),
+                    DropdownMenuItem(value: 'Conectores', child: Text('Conectores')),
+                    DropdownMenuItem(value: 'EPIs', child: Text('EPIs')),
+                  ],
+                  onChanged: (value) {
+                    if (value != null) {
+                      categoriaSelecionada = value;
+                    }
+                  },
+                ),
+                const SizedBox(height: 16),
+                TextField(
+                  controller: estoqueController,
+                  keyboardType: TextInputType.number,
+                  decoration: const InputDecoration(
+                    labelText: 'Estoque',
+                    border: OutlineInputBorder(),
+                  ),
+                ),
+                const SizedBox(height: 16),
+                DropdownButtonFormField<String>(
+                  value: statusSelecionado,
+                  decoration: const InputDecoration(
+                    labelText: 'Status',
+                    border: OutlineInputBorder(),
+                  ),
+                  items: const [
+                    DropdownMenuItem(value: 'Ativo', child: Text('Ativo')),
+                    DropdownMenuItem(value: 'Inativo', child: Text('Inativo')),
+                  ],
+                  onChanged: (value) {
+                    if (value != null) {
+                      statusSelecionado = value;
+                    }
+                  },
+                ),
+              ],
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(context),
+              child: const Text('Cancelar'),
+            ),
+            ElevatedButton(
+              onPressed: () {
+                if (codigoController.text.isEmpty || nomeController.text.isEmpty) {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    const SnackBar(
+                      content: Text('Preencha todos os campos obrigatórios!'),
+                      backgroundColor: Colors.redAccent,
+                    ),
+                  );
+                  return;
+                }
+
+                final novoMaterial = MaterialItem(
+                  id: _materiais.length + 1,
+                  codigoSap: int.tryParse(codigoController.text) ?? 0,
+                  descricao: nomeController.text,
+                  categoria: categoriaSelecionada,
+                  unidade: estoqueController.text,
+                  apelido: null,
+                  ativo: statusSelecionado == 'Ativo',
+                );
+
+                setState(() {
+                  _materiais.add(novoMaterial);
+                });
+
+                Navigator.pop(context);
+
+                ScaffoldMessenger.of(context).showSnackBar(
+                  const SnackBar(
+                    content: Text('Material adicionado com sucesso!'),
+                    backgroundColor: Colors.green,
+                  ),
+                );
+              },
+              style: ElevatedButton.styleFrom(
+                backgroundColor: const Color(0xFF3B82F6),
+                foregroundColor: Colors.white,
+              ),
+              child: const Text('Salvar'),
+            ),
+          ],
+        );
+      },
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     const Color primaryColor = Color(0xFF080023);
@@ -194,7 +331,7 @@ class _MateriaisAdminPageState extends State<MateriaisAdminPage> {
                   ),
                   const SizedBox(width: 16),
                   ElevatedButton.icon(
-                    onPressed: () {},
+                    onPressed: _showAddMaterialDialog,
                     icon: const Icon(Icons.add, color: Colors.white),
                     label: const Text('Criar Novo Material'),
                     style: ElevatedButton.styleFrom(
@@ -205,8 +342,6 @@ class _MateriaisAdminPageState extends State<MateriaisAdminPage> {
                 ],
               ),
               const SizedBox(height: 24),
-
-              // 🔧 FilterBar atualizado
               FilterBar(
                 searchController: _searchController,
                 selectedCategory: _selectedCategory,
@@ -250,7 +385,8 @@ class _MateriaisAdminPageState extends State<MateriaisAdminPage> {
         height: 500,
         child: Center(
           child: CircularProgressIndicator(
-              valueColor: AlwaysStoppedAnimation<Color>(Color(0xFF080023))),
+            valueColor: AlwaysStoppedAnimation<Color>(Color(0xFF080023)),
+          ),
         ),
       );
     }
@@ -266,13 +402,17 @@ class _MateriaisAdminPageState extends State<MateriaisAdminPage> {
               const SizedBox(height: 16),
               Padding(
                 padding: const EdgeInsets.symmetric(horizontal: 16.0),
-                child: Text(_errorMessage!,
-                    textAlign: TextAlign.center,
-                    style: const TextStyle(color: Colors.black87, fontSize: 16)),
+                child: Text(
+                  _errorMessage!,
+                  textAlign: TextAlign.center,
+                  style: const TextStyle(color: Colors.black87, fontSize: 16),
+                ),
               ),
               const SizedBox(height: 16),
               ElevatedButton(
-                  onPressed: _fetchMateriais, child: const Text("Tentar Novamente"))
+                onPressed: _fetchMateriais,
+                child: const Text("Tentar Novamente"),
+              ),
             ],
           ),
         ),
@@ -283,8 +423,10 @@ class _MateriaisAdminPageState extends State<MateriaisAdminPage> {
       return const SizedBox(
         height: 500,
         child: Center(
-          child: Text("Nenhum material encontrado",
-              style: TextStyle(color: Colors.black54, fontSize: 18)),
+          child: Text(
+            "Nenhum material encontrado",
+            style: TextStyle(color: Colors.black54, fontSize: 18),
+          ),
         ),
       );
     }
@@ -304,10 +446,11 @@ class _MateriaisAdminPageState extends State<MateriaisAdminPage> {
               padding: EdgeInsets.zero,
               itemCount: _materiais.length,
               separatorBuilder: (context, index) => const Divider(
-                  color: Color.fromARGB(59, 102, 102, 102),
-                  height: 1,
-                  indent: 16,
-                  endIndent: 16),
+                color: Color.fromARGB(59, 102, 102, 102),
+                height: 1,
+                indent: 16,
+                endIndent: 16,
+              ),
               itemBuilder: (context, index) =>
                   _buildMaterialRow(_materiais[index]),
             ),
@@ -342,16 +485,24 @@ class _MateriaisAdminPageState extends State<MateriaisAdminPage> {
         children: [
           Expanded(flex: 2, child: Text(item.codigoSap.toString(), style: cellStyle)),
           Expanded(
-              flex: 4,
-              child: Text(item.descricao,
-                  style: const TextStyle(color: Colors.black, fontWeight: FontWeight.bold))),
+            flex: 4,
+            child: Text(
+              item.descricao,
+              style: const TextStyle(color: Colors.black, fontWeight: FontWeight.bold),
+            ),
+          ),
           Expanded(flex: 3, child: _buildChip(item.categoria ?? '-', Colors.grey.shade300, Colors.black54)),
           Expanded(flex: 3, child: Text(item.unidade ?? '-', style: cellStyle)),
           Expanded(flex: 2, child: _buildStatusChip(item.status)),
           SizedBox(
-              width: 56,
-              child: Center(
-                  child: IconButton(icon: const Icon(Icons.more_horiz, color: Colors.black54), onPressed: () {}))),
+            width: 56,
+            child: Center(
+              child: IconButton(
+                icon: const Icon(Icons.more_horiz, color: Colors.black54),
+                onPressed: () {},
+              ),
+            ),
+          ),
         ],
       ),
     );
