@@ -174,6 +174,7 @@ class _HomeAdminPageState extends State<HomeAdminPage> {
     setState(() {
       _lastUpdated = DateTime.now();
       _movimentacoes.shuffle(Random());
+      _fetchMovimentacoes();
     });
   }
 
