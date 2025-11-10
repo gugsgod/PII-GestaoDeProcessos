@@ -7,6 +7,7 @@ import 'pages/materiais_admin_page.dart';
 import 'pages/instrumentos_admin_page.dart';
 import 'pages/historico_admin_page.dart';
 import 'pages/movimentacoes.dart';
+import 'pages/pessoas_page.dart';
 Future<void> main() async {
 
   WidgetsFlutterBinding.ensureInitialized();
@@ -47,6 +48,7 @@ class MyApp extends StatelessWidget {
         '/instrumentos': (context) => const InstrumentosAdminPage(),
         '/historico': (context) => const HistoricoAdminPage(),
         '/movimentacoes': (context) => const MovimentacoesRecentesPage(),
+        '/pessoas': (context) => const PessoasPage(),
       },
     );
   }

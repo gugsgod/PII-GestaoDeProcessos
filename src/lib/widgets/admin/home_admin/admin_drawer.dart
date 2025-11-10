@@ -92,7 +92,10 @@ class AdminDrawer extends StatelessWidget {
                 _buildDrawerItem(
                   icon: Icons.people_outline,
                   text: 'Pessoas',
-                  onTap: () {},
+                  onTap: () {
+                    Navigator.pop(context);
+                    Navigator.pushReplacementNamed(context, '/pessoas');
+                  },
                 ),
                 _buildDrawerItem(
                   icon: Icons.sync_alt_outlined,

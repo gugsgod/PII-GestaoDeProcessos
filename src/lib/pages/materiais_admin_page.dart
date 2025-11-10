@@ -2,6 +2,7 @@ import 'dart:convert';
 import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
 import 'package:flutter/material.dart';
+// import 'package:provider/provider.dart'; // <= ADICIONE 
 import 'package:src/auth/auth_store.dart';
 import '../widgets/admin/home_admin/admin_drawer.dart';
 import 'animated_network_background.dart';
@@ -142,66 +143,6 @@ class _MateriaisAdminPageState extends State<MateriaisAdminPage> {
   void _onSearchChanged(String query) {
     _fetchMateriais();
   }
-  
-
-  // final List<MaterialItem> _materiais = [
-  //   MaterialItem(
-  //     codigo: 'MAT001',
-  //     nome: 'Cabo Ethernet Cat6',
-  //     categoria: 'Cabos',
-  //     estoqueMinimo: 100,
-  //     status: 'Ativo',
-  //   ),
-  //   MaterialItem(
-  //     codigo: 'MAT002',
-  //     nome: 'Relé de Proteção 24V',
-  //     categoria: 'Relés',
-  //     estoqueMinimo: 100,
-  //     status: 'Ativo',
-  //   ),
-  //   MaterialItem(
-  //     codigo: 'MAT003',
-  //     nome: 'Conector DB9 Macho',
-  //     categoria: 'Conectores',
-  //     estoqueMinimo: 100,
-  //     status: 'Ativo',
-  //   ),
-  //   MaterialItem(
-  //     codigo: 'MAT004',
-  //     nome: 'Luva de Segurança',
-  //     categoria: 'EPIs',
-  //     estoqueMinimo: 100,
-  //     status: 'Ativo',
-  //   ),
-  //   MaterialItem(
-  //     codigo: 'MAT005',
-  //     nome: 'Chave Philips 1/4',
-  //     categoria: 'Ferramentas',
-  //     estoqueMinimo: 100,
-  //     status: 'Ativo',
-  //   ),
-  //   MaterialItem(
-  //     codigo: 'MAT006',
-  //     nome: 'Fusível 10A',
-  //     categoria: 'Peças',
-  //     estoqueMinimo: 100,
-  //     status: 'Inativo',
-  //   ),
-  //   MaterialItem(
-  //     codigo: 'MAT007',
-  //     nome: 'Capacete de Segurança',
-  //     categoria: 'EPIs',
-  //     estoqueMinimo: 100,
-  //     status: 'Ativo',
-  //   ),
-  //   MaterialItem(
-  //     codigo: 'MAT008',
-  //     nome: 'Óculos de Segurança',
-  //     categoria: 'EPIs',
-  //     estoqueMinimo: 100,
-  //     status: 'Ativo',
-  //   ),
-  // ];
 
   @override
   Widget build(BuildContext context) {
