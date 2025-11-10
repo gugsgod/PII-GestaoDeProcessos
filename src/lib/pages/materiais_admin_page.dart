@@ -9,7 +9,6 @@ import 'animated_network_background.dart';
 import '../widgets/admin/home_admin/update_status_bar.dart';
 import '../widgets/admin/materiais_admin/filter_bar.dart';
 
-
 class MaterialItem {
   final int id;
   final int codigoSap;
@@ -44,8 +43,6 @@ class MaterialItem {
   String get status => ativo ? "Ativo" : "Inativo";
 }
 
-
-
 class MateriaisAdminPage extends StatefulWidget {
   const MateriaisAdminPage({super.key});
 
@@ -54,7 +51,6 @@ class MateriaisAdminPage extends StatefulWidget {
 }
 
 class _MateriaisAdminPageState extends State<MateriaisAdminPage> {
-  // Removido: AuthStore local e _loaded
   late DateTime _lastUpdated;
   String _selectedCategory = 'Todas as Categorias';
   final ScrollController _scrollController = ScrollController();
@@ -64,12 +60,6 @@ class _MateriaisAdminPageState extends State<MateriaisAdminPage> {
   bool _isLoading = true;
   String? _errorMessage;
   List<MaterialItem> _materiais = [];
-
-  // Estados para controlar o carregamento e erros da API
-  bool _isLoading = true;
-  String? _erroMessage;
-  List<MaterialItem> _materiais = [];
-
 
   @override
   void initState() {
@@ -85,20 +75,13 @@ class _MateriaisAdminPageState extends State<MateriaisAdminPage> {
     super.dispose();
   }
 
-  // void _atualizarDados() {
-  //   setState(() {
-  //     _lastUpdated = DateTime.now();
-  //     // TODO: carregar dados da API
-  //   });
-
-  Future<void> _fetchMateriais() async{
+  Future<void> _fetchMateriais() async {
     setState(() {
       _isLoading = true;
       _errorMessage = null;
     });
 
-    // ################ PONTO DE INTEGRAÇÃO ##################
-    const String baseUrl =  "http://localhost:8080";
+    const String baseUrl = "http://localhost:8080";
 
     final queryParams = <String, String>{
       "limit": "100",
@@ -123,15 +106,12 @@ class _MateriaisAdminPageState extends State<MateriaisAdminPage> {
         final decodedBody = json.decode(utf8.decode(response.bodyBytes));
         final List<dynamic> data = decodedBody["data"];
         _materiais = data.map((json) => MaterialItem.fromJson(json)).toList();
-
       } else {
         final errorBody = json.decode(utf8.decode(response.bodyBytes));
         throw Exception("Falha ao carregar materiais: ${response.statusCode} - ${errorBody["error"]}");
       }
-
     } catch (e) {
       _errorMessage = "Erro ao conectar com o servidor: ${e.toString()}";
-
     } finally {
       setState(() {
         _isLoading = false;
@@ -146,13 +126,6 @@ class _MateriaisAdminPageState extends State<MateriaisAdminPage> {
 
   @override
   Widget build(BuildContext context) {
-    // Lê AuthStore centralizado
-    // final auth = context.watch<AuthStore>();
-    // if (!auth.isAuthenticated) {
-    //   Future.microtask(() => Navigator.pushReplacementNamed(context, '/login'));
-    //   return const Scaffold(body: Center(child: CircularProgressIndicator()));
-    // }
-
     const Color primaryColor = Color(0xFF080023);
     const Color secondaryColor = Color.fromARGB(255, 0, 14, 92);
     final isDesktop = MediaQuery.of(context).size.width > 768;
@@ -179,13 +152,10 @@ class _MateriaisAdminPageState extends State<MateriaisAdminPage> {
           ),
         ],
       ),
-
-      // Drawer lê o AuthStore via Provider internamente
       drawer: const AdminDrawer(
         primaryColor: Color(0xFF080023),
         secondaryColor: Color.fromARGB(255, 0, 14, 92),
       ),
-
       body: SingleChildScrollView(
         child: Padding(
           padding: const EdgeInsets.all(24.0),
@@ -198,7 +168,6 @@ class _MateriaisAdminPageState extends State<MateriaisAdminPage> {
                 onUpdate: _fetchMateriais,
               ),
               const SizedBox(height: 24),
-
               const Text(
                 'Gestão de Materiais',
                 style: TextStyle(
@@ -212,10 +181,7 @@ class _MateriaisAdminPageState extends State<MateriaisAdminPage> {
                 'Cadastre, edite e controle os materiais de consumo e giro',
                 style: TextStyle(color: Colors.white70, fontSize: 16),
               ),
-
               const SizedBox(height: 24),
-
-              // Barra de ações
               Row(
                 mainAxisAlignment: MainAxisAlignment.end,
                 children: [
@@ -242,10 +208,7 @@ class _MateriaisAdminPageState extends State<MateriaisAdminPage> {
                   ),
                 ],
               ),
-
               const SizedBox(height: 24),
-
-              // Filtros
               FilterBar(
                 searchController: _searchController,
                 selectedCategory: _selectedCategory,
@@ -257,10 +220,7 @@ class _MateriaisAdminPageState extends State<MateriaisAdminPage> {
                 },
                 onSearchChanged: _onSearchChanged,
               ),
-
               const SizedBox(height: 24),
-
-              // Tabela
               Container(
                 width: double.infinity,
                 decoration: BoxDecoration(
@@ -281,7 +241,8 @@ class _MateriaisAdminPageState extends State<MateriaisAdminPage> {
       return const SizedBox(
         height: 500,
         child: Center(
-          child: CircularProgressIndicator(valueColor: AlwaysStoppedAnimation<Color>(Color(0xFF080023))),
+          child: CircularProgressIndicator(
+              valueColor: AlwaysStoppedAnimation<Color>(Color(0xFF080023))),
         ),
       );
     }
@@ -297,10 +258,13 @@ class _MateriaisAdminPageState extends State<MateriaisAdminPage> {
               const SizedBox(height: 16),
               Padding(
                 padding: const EdgeInsets.symmetric(horizontal: 16.0),
-                child: Text(_errorMessage!, textAlign: TextAlign.center, style: const TextStyle(color: Colors.black87, fontSize: 16)),
+                child: Text(_errorMessage!,
+                    textAlign: TextAlign.center,
+                    style: const TextStyle(color: Colors.black87, fontSize: 16)),
               ),
               const SizedBox(height: 16),
-              ElevatedButton(onPressed: _fetchMateriais, child: const Text("Tentar Novamente"))
+              ElevatedButton(
+                  onPressed: _fetchMateriais, child: const Text("Tentar Novamente"))
             ],
           ),
         ),
@@ -311,7 +275,8 @@ class _MateriaisAdminPageState extends State<MateriaisAdminPage> {
       return const SizedBox(
         height: 500,
         child: Center(
-          child: Text("Nemnhum material encontrado", style: TextStyle(color: Colors.black54, fontSize: 18)),
+          child: Text("Nenhum material encontrado",
+              style: TextStyle(color: Colors.black54, fontSize: 18)),
         ),
       );
     }
@@ -324,7 +289,8 @@ class _MateriaisAdminPageState extends State<MateriaisAdminPage> {
           height: 500,
           child: ScrollbarTheme(
             data: ScrollbarThemeData(
-              thumbColor: WidgetStateProperty.all(const Color.fromARGB(255, 44, 44, 44)),
+              thumbColor:
+                  MaterialStateProperty.all(const Color.fromARGB(255, 44, 44, 44)),
               mainAxisMargin: 8.0,
             ),
             child: Padding(
@@ -337,8 +303,13 @@ class _MateriaisAdminPageState extends State<MateriaisAdminPage> {
                   controller: _scrollController,
                   padding: EdgeInsets.zero,
                   itemCount: _materiais.length,
-                  separatorBuilder: (context, index) => const Divider(color: Color.fromARGB(59, 102, 102, 102), height: 1, indent: 16, endIndent: 16),
-                  itemBuilder: (context, index) => _buildMaterialRow(_materiais[index]),
+                  separatorBuilder: (context, index) => const Divider(
+                      color: Color.fromARGB(59, 102, 102, 102),
+                      height: 1,
+                      indent: 16,
+                      endIndent: 16),
+                  itemBuilder: (context, index) =>
+                      _buildMaterialRow(_materiais[index]),
                 ),
               ),
             ),
@@ -348,7 +319,6 @@ class _MateriaisAdminPageState extends State<MateriaisAdminPage> {
     );
   }
 
-  // Cabeçalho da Tabela
   Widget _buildTableHeader() {
     const headerStyle = TextStyle(fontWeight: FontWeight.bold, color: Colors.black54);
     return Container(
@@ -360,7 +330,6 @@ class _MateriaisAdminPageState extends State<MateriaisAdminPage> {
           Expanded(flex: 3, child: Text('Categoria', style: headerStyle)),
           Expanded(flex: 3, child: Text('Unidade', style: headerStyle)),
           Expanded(flex: 2, child: Text('Status', style: headerStyle)),
-          // Apenas a coluna de Ações continua centralizada
           SizedBox(width: 56, child: Center(child: Text('Ações', style: headerStyle))),
         ],
       ),
@@ -374,17 +343,22 @@ class _MateriaisAdminPageState extends State<MateriaisAdminPage> {
       child: Row(
         children: [
           Expanded(flex: 2, child: Text(item.codigoSap.toString(), style: cellStyle)),
-          Expanded(flex: 4, child: Text(item.descricao, style: const TextStyle(color: Colors.black, fontWeight: FontWeight.bold))),
+          Expanded(
+              flex: 4,
+              child: Text(item.descricao,
+                  style: const TextStyle(color: Colors.black, fontWeight: FontWeight.bold))),
           Expanded(flex: 3, child: _buildChip(item.categoria ?? '-', Colors.grey.shade300, Colors.black54)),
           Expanded(flex: 3, child: Text(item.unidade ?? '-', style: cellStyle)),
           Expanded(flex: 2, child: _buildStatusChip(item.status)),
-          // coluna de ações centralizada
-          SizedBox(width: 56, child: Center(child: IconButton(icon: const Icon(Icons.more_horiz, color: Colors.black54), onPressed: () {}))),
+          SizedBox(
+              width: 56,
+              child: Center(
+                  child: IconButton(icon: const Icon(Icons.more_horiz, color: Colors.black54), onPressed: () {}))),
         ],
       ),
     );
   }
-  
+
   Widget _buildChip(String label, Color color, Color textColor) {
     return Align(
       alignment: Alignment.centerLeft,
@@ -410,7 +384,7 @@ class _MateriaisAdminPageState extends State<MateriaisAdminPage> {
     final bool isAtivo = status == 'Ativo';
     final backgroundColor = isAtivo ? Colors.green.shade100 : Colors.red.shade100;
     final textColor = isAtivo ? Colors.green.shade800 : Colors.red.shade800;
-    
+
     return _buildChip(status, backgroundColor, textColor);
   }
 }
