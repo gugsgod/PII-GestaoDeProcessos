@@ -105,29 +105,44 @@ class _InstrumentosAdminPageState extends State<InstrumentosAdminPage> {
   }
 
   Future<void> _load() async {
+    // 1. Mostra o loading e limpa erros antigos
+    setState(() {
+      _isLoading = true;
+      _errorMessage = null;
+    });
+
+    // 2. FORÇA o Flutter a redesenhar a tela AGORA
+    // Isso garante que o spinner apareça antes da chamada da API
+    await Future.delayed(Duration.zero);
+
+    // 3. Pega o token
     final auth = context.read<AuthStore>();
     final token = auth.token;
 
     if (token == null || !auth.isAuthenticated) {
+      if (!mounted) return;
       setState(() {
         _isLoading = false;
-        _errorMessage = 'missing/invalid token';
+        _errorMessage = 'Token de acesso ausente ou inválido.';
       });
       return;
     }
 
+    // 4. AGORA tenta a API (depois que o loading já está na tela)
     try {
-      final data = await fetchInstrumentos(token);
+      final data = await fetchInstrumentos(token); // (A api já tem timeout e no-cache)
       if (!mounted) return;
       setState(() {
         _instruments = data.map((e) => Instrument.fromJson(e)).toList();
         _isLoading = false;
+        _lastUpdated = DateTime.now(); // Atualiza a hora
       });
     } catch (e) {
       if (!mounted) return;
       setState(() {
         _isLoading = false;
-        _errorMessage = 'Falha ao carregar instrumentos: $e';
+        _errorMessage =
+            e.toString().replaceAll("Exception: ", ""); // Mostra o erro da API
       });
     }
   }
@@ -170,7 +185,10 @@ class _InstrumentosAdminPageState extends State<InstrumentosAdminPage> {
 
       // 201 = Criado com sucesso
       if (response.statusCode == 201) {
-        _showSnackBar("Instrumento '$patrimonio' cadastrado com sucesso!", isError: false);
+        _showSnackBar(
+          "Instrumento '$patrimonio' cadastrado com sucesso!",
+          isError: false,
+        );
         _load(); // Atualiza a lista
         return true;
       } else {
@@ -181,7 +199,10 @@ class _InstrumentosAdminPageState extends State<InstrumentosAdminPage> {
       }
     } catch (e) {
       // Erro de conexão ou outro
-      _showSnackBar("Erro: ${e.toString().replaceAll("Exception: ", "")}", isError: true);
+      _showSnackBar(
+        "Erro: ${e.toString().replaceAll("Exception: ", "")}",
+        isError: true,
+      );
       return false;
     }
   }
@@ -192,22 +213,23 @@ class _InstrumentosAdminPageState extends State<InstrumentosAdminPage> {
       builder: (BuildContext context) {
         // Passa a função de salvar para o dialog
         return _AddInstrumentDialog(
-          onSave: (
-            String patrimonio,
-            String descricao,
-            String? categoria,
-            int? localId,
-            String? proximaCalibracao,
-          ) async {
-            // Chama a nova função de API
-            return await _addNewInstrument(
-              patrimonio: patrimonio,
-              descricao: descricao,
-              categoria: categoria,
-              localId: localId,
-              proximaCalibracao: proximaCalibracao,
-            );
-          },
+          onSave:
+              (
+                String patrimonio,
+                String descricao,
+                String? categoria,
+                int? localId,
+                String? proximaCalibracao,
+              ) async {
+                // Chama a nova função de API
+                return await _addNewInstrument(
+                  patrimonio: patrimonio,
+                  descricao: descricao,
+                  categoria: categoria,
+                  localId: localId,
+                  proximaCalibracao: proximaCalibracao,
+                );
+              },
         );
       },
     );
@@ -253,21 +275,6 @@ class _InstrumentosAdminPageState extends State<InstrumentosAdminPage> {
     const Color primaryColor = Color(0xFF080023);
     const Color secondaryColor = Color.fromARGB(255, 0, 14, 92);
     final isDesktop = MediaQuery.of(context).size.width > 768;
-
-    if (_isLoading) {
-      return const Scaffold(body: Center(child: CircularProgressIndicator()));
-    }
-
-    if (_errorMessage != null) {
-      return Scaffold(
-        body: Center(
-          child: Text(
-            'Erro: $_errorMessage',
-            style: const TextStyle(color: Colors.red),
-          ),
-        ),
-      );
-    }
 
     return Scaffold(
       backgroundColor: primaryColor,
@@ -528,7 +535,8 @@ class _AddInstrumentDialog extends StatefulWidget {
     String? categoria,
     int? localId,
     String? proximaCalibracao,
-  ) onSave;
+  )
+  onSave;
 
   const _AddInstrumentDialog({required this.onSave});
 
@@ -563,17 +571,20 @@ class _AddInstrumentDialogState extends State<_AddInstrumentDialog> {
       return;
     }
 
-    setState(() { _isSaving = true; });
+    setState(() {
+      _isSaving = true;
+    });
 
     // Converte os valores
     final String patrimonio = _patrimonioController.text.trim();
     final String descricao = _descricaoController.text.trim();
     final String? categoria = _categoriaController.text.trim().isEmpty
-        ? null : _categoriaController.text.trim();
+        ? null
+        : _categoriaController.text.trim();
     final int? localId = int.tryParse(_localIdController.text.trim());
     final String? calibracao = _calibracaoController.text.trim().isEmpty
-        ? null : _calibracaoController.text.trim();
-
+        ? null
+        : _calibracaoController.text.trim();
 
     // Chama a função de salvar (que é o _addNewInstrument da InstrumentosAdminPage)
     final bool success = await widget.onSave(
@@ -589,10 +600,12 @@ class _AddInstrumentDialogState extends State<_AddInstrumentDialog> {
       Navigator.of(context).pop();
     } else {
       // Se falhou, apenas para de carregar (o snackbar de erro já foi mostrado)
-      setState(() { _isSaving = false; });
+      setState(() {
+        _isSaving = false;
+      });
     }
   }
-  
+
   // Mostra o seletor de data
   Future<void> _selectDate() async {
     DateTime? picked = await showDatePicker(
@@ -611,11 +624,15 @@ class _AddInstrumentDialogState extends State<_AddInstrumentDialog> {
     }
   }
 
-
   @override
   Widget build(BuildContext context) {
     const Color primaryColor = Color(0xFF080023);
-    const Color inputFillColor = Color.fromARGB(255, 30, 24, 53); // Um pouco mais claro que o fundo
+    const Color inputFillColor = Color.fromARGB(
+      255,
+      30,
+      24,
+      53,
+    ); // Um pouco mais claro que o fundo
     const Color borderColor = Colors.white30;
     const Color hintColor = Colors.white60;
 
@@ -635,7 +652,10 @@ class _AddInstrumentDialogState extends State<_AddInstrumentDialog> {
               TextFormField(
                 controller: _patrimonioController,
                 style: const TextStyle(color: Colors.white),
-                decoration: _buildInputDecoration(label: 'Patrimônio *', icon: Icons.qr_code),
+                decoration: _buildInputDecoration(
+                  label: 'Patrimônio *',
+                  icon: Icons.qr_code,
+                ),
                 validator: (value) {
                   if (value == null || value.trim().isEmpty) {
                     return 'O patrimônio é obrigatório';
@@ -649,7 +669,10 @@ class _AddInstrumentDialogState extends State<_AddInstrumentDialog> {
               TextFormField(
                 controller: _descricaoController,
                 style: const TextStyle(color: Colors.white),
-                decoration: _buildInputDecoration(label: 'Descrição *', icon: Icons.edit),
+                decoration: _buildInputDecoration(
+                  label: 'Descrição *',
+                  icon: Icons.edit,
+                ),
                 validator: (value) {
                   if (value == null || value.trim().isEmpty) {
                     return 'A descrição é obrigatória';
@@ -663,18 +686,25 @@ class _AddInstrumentDialogState extends State<_AddInstrumentDialog> {
               TextFormField(
                 controller: _categoriaController,
                 style: const TextStyle(color: Colors.white),
-                decoration: _buildInputDecoration(label: 'Categoria', icon: Icons.category),
+                decoration: _buildInputDecoration(
+                  label: 'Categoria',
+                  icon: Icons.category,
+                ),
               ),
               const SizedBox(height: 16),
-              
+
               // Campo LOCAL ID
               TextFormField(
                 controller: _localIdController,
                 style: const TextStyle(color: Colors.white),
                 keyboardType: TextInputType.number,
-                decoration: _buildInputDecoration(label: 'ID do Local', icon: Icons.location_on),
-                 validator: (value) {
-                  if (value == null || value.trim().isEmpty) return null; // Campo opcional
+                decoration: _buildInputDecoration(
+                  label: 'ID do Local',
+                  icon: Icons.location_on,
+                ),
+                validator: (value) {
+                  if (value == null || value.trim().isEmpty)
+                    return null; // Campo opcional
                   if (int.tryParse(value.trim()) == null) {
                     return 'O ID deve ser um número';
                   }
@@ -682,21 +712,25 @@ class _AddInstrumentDialogState extends State<_AddInstrumentDialog> {
                 },
               ),
               const SizedBox(height: 16),
-              
+
               // Campo PRÓXIMA CALIBRAÇÃO
               TextFormField(
                 controller: _calibracaoController,
                 style: const TextStyle(color: Colors.white),
-                decoration: _buildInputDecoration(
-                  label: 'Próxima Calibração (yyyy-mm-dd)', 
-                  icon: Icons.calendar_today
-                ).copyWith(
-                  // Adiciona um botão de calendário no final
-                  suffixIcon: IconButton(
-                    icon: const Icon(Icons.calendar_month_outlined, color: hintColor),
-                    onPressed: _selectDate,
-                  )
-                ),
+                decoration:
+                    _buildInputDecoration(
+                      label: 'Próxima Calibração (yyyy-mm-dd)',
+                      icon: Icons.calendar_today,
+                    ).copyWith(
+                      // Adiciona um botão de calendário no final
+                      suffixIcon: IconButton(
+                        icon: const Icon(
+                          Icons.calendar_month_outlined,
+                          color: hintColor,
+                        ),
+                        onPressed: _selectDate,
+                      ),
+                    ),
                 readOnly: true, // Impede digitação manual
                 onTap: _selectDate, // Abre o seletor ao tocar
               ),
@@ -708,11 +742,16 @@ class _AddInstrumentDialogState extends State<_AddInstrumentDialog> {
         // Botão CANCELAR
         TextButton(
           onPressed: () => Navigator.of(context).pop(),
-          child: const Text('Cancelar', style: TextStyle(color: Colors.white70)),
+          child: const Text(
+            'Cancelar',
+            style: TextStyle(color: Colors.white70),
+          ),
         ),
         // Botão SALVAR
         ElevatedButton(
-          onPressed: _isSaving ? null : _saveInstrument, // Desativa se estiver salvando
+          onPressed: _isSaving
+              ? null
+              : _saveInstrument, // Desativa se estiver salvando
           style: ElevatedButton.styleFrom(
             backgroundColor: const Color(0xFF3B82F6),
             foregroundColor: Colors.white,
@@ -721,7 +760,10 @@ class _AddInstrumentDialogState extends State<_AddInstrumentDialog> {
               ? const SizedBox(
                   width: 20,
                   height: 20,
-                  child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
+                  child: CircularProgressIndicator(
+                    strokeWidth: 2,
+                    color: Colors.white,
+                  ),
                 )
               : const Text('Salvar'),
         ),
@@ -730,7 +772,10 @@ class _AddInstrumentDialogState extends State<_AddInstrumentDialog> {
   }
 
   // Helper para estilizar os campos de texto do formulário
-  InputDecoration _buildInputDecoration({required String label, required IconData icon}) {
+  InputDecoration _buildInputDecoration({
+    required String label,
+    required IconData icon,
+  }) {
     const Color inputFillColor = Color.fromARGB(255, 30, 24, 53);
     const Color borderColor = Colors.white30;
     const Color hintColor = Colors.white60;
@@ -755,7 +800,10 @@ class _AddInstrumentDialogState extends State<_AddInstrumentDialog> {
       // Borda em foco (quando o usuário clica)
       focusedBorder: OutlineInputBorder(
         borderRadius: BorderRadius.circular(12),
-        borderSide: const BorderSide(color: Color(0xFF3B82F6), width: 2), // Borda azul de destaque
+        borderSide: const BorderSide(
+          color: Color(0xFF3B82F6),
+          width: 2,
+        ), // Borda azul de destaque
       ),
     );
   }
