@@ -1,3 +1,4 @@
+import 'package:http/http.dart' as http;
 import 'package:provider/provider.dart';
 import 'package:src/auth/auth_store.dart';
 import 'package:src/services/instrumentos_api.dart';
@@ -131,72 +132,84 @@ class _InstrumentosAdminPageState extends State<InstrumentosAdminPage> {
     }
   }
 
-  void _showAddInstrumentDialog() {
-    final idController = TextEditingController();
-    final patrimonioController = TextEditingController();
-    InstrumentStatus status = InstrumentStatus.ativo;
+  Future<bool> _addNewInstrument({
+    required String patrimonio,
+    required String descricao,
+    String? categoria,
+    int? localId,
+    String? proximaCalibracao,
+  }) async {
+    final auth = context.read<AuthStore>();
+    final token = auth.token;
+    if (token == null) {
+      _showSnackBar("Erro: Usuário não autenticado.", isError: true);
+      return false;
+    }
 
+    // Assume que a API está rodando localmente
+    const String baseUrl = "http://localhost:8080";
+    // O backend `index.dart` está na rota /instrumentos (assumindo)
+    final uri = Uri.parse("$baseUrl/instrumentos");
+
+    try {
+      final response = await http.post(
+        uri,
+        headers: {
+          "Content-Type": "application/json",
+          "Accept": "application/json",
+          "Authorization": "Bearer $token", // Envia o token
+        },
+        body: json.encode({
+          "patrimonio": patrimonio,
+          "descricao": descricao,
+          "categoria": categoria,
+          "local_atual_id": localId,
+          "proxima_calibracao_em": proximaCalibracao,
+        }),
+      );
+
+      // 201 = Criado com sucesso
+      if (response.statusCode == 201) {
+        _showSnackBar("Instrumento '$patrimonio' cadastrado com sucesso!", isError: false);
+        _load(); // Atualiza a lista
+        return true;
+      } else {
+        // Erro do servidor (ex: patrimônio duplicado, validação)
+        final errorBody = json.decode(utf8.decode(response.bodyBytes));
+        // O backend retorna 'Erro: Patrimônio "X" já cadastrado.'
+        throw Exception(errorBody["error"] ?? errorBody.toString());
+      }
+    } catch (e) {
+      // Erro de conexão ou outro
+      _showSnackBar("Erro: ${e.toString().replaceAll("Exception: ", "")}", isError: true);
+      return false;
+    }
+  }
+
+  void _showAddInstrumentDialog() {
     showDialog(
       context: context,
-      builder: (context) => AlertDialog(
-        title: const Text('Adicionar Novo Instrumento'),
-        content: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            TextField(
-              controller: idController,
-              decoration: const InputDecoration(labelText: 'ID'),
-            ),
-            TextField(
-              controller: patrimonioController,
-              decoration: const InputDecoration(labelText: 'Patrimônio'),
-            ),
-            const SizedBox(height: 8),
-            DropdownButtonFormField<InstrumentStatus>(
-              value: status,
-              decoration: const InputDecoration(labelText: 'Status'),
-              items: const [
-                DropdownMenuItem(
-                  value: InstrumentStatus.ativo,
-                  child: Text('Ativo'),
-                ),
-                DropdownMenuItem(
-                  value: InstrumentStatus.inativo,
-                  child: Text('Inativo'),
-                ),
-              ],
-              onChanged: (value) {
-                if (value != null) status = value;
-              },
-            ),
-          ],
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context),
-            child: const Text('Cancelar'),
-          ),
-          ElevatedButton(
-            onPressed: () {
-              if (idController.text.isEmpty ||
-                  patrimonioController.text.isEmpty)
-                return;
-
-              setState(() {
-                _instruments.add(
-                  Instrument(
-                    id: idController.text,
-                    patrimonio: patrimonioController.text,
-                    status: status,
-                  ),
-                );
-              });
-              Navigator.pop(context);
-            },
-            child: const Text('Adicionar'),
-          ),
-        ],
-      ),
+      builder: (BuildContext context) {
+        // Passa a função de salvar para o dialog
+        return _AddInstrumentDialog(
+          onSave: (
+            String patrimonio,
+            String descricao,
+            String? categoria,
+            int? localId,
+            String? proximaCalibracao,
+          ) async {
+            // Chama a nova função de API
+            return await _addNewInstrument(
+              patrimonio: patrimonio,
+              descricao: descricao,
+              categoria: categoria,
+              localId: localId,
+              proximaCalibracao: proximaCalibracao,
+            );
+          },
+        );
+      },
     );
   }
 
@@ -437,7 +450,7 @@ class _InstrumentosAdminPageState extends State<InstrumentosAdminPage> {
         children: [
           Expanded(flex: 2, child: Text(item.patrimonio, style: cellStyle)),
           Expanded(
-            flex: 3,
+            flex: 2,
             child: Text(
               item.descricao,
               style: const TextStyle(
@@ -502,6 +515,247 @@ class _StatusChip extends StatelessWidget {
             fontWeight: FontWeight.bold,
           ),
         ),
+      ),
+    );
+  }
+}
+
+class _AddInstrumentDialog extends StatefulWidget {
+  // Callback que chama a função de salvar da classe pai
+  final Future<bool> Function(
+    String patrimonio,
+    String descricao,
+    String? categoria,
+    int? localId,
+    String? proximaCalibracao,
+  ) onSave;
+
+  const _AddInstrumentDialog({required this.onSave});
+
+  @override
+  State<_AddInstrumentDialog> createState() => _AddInstrumentDialogState();
+}
+
+class _AddInstrumentDialogState extends State<_AddInstrumentDialog> {
+  final GlobalKey<FormState> _formKey = GlobalKey<FormState>();
+  final TextEditingController _patrimonioController = TextEditingController();
+  final TextEditingController _descricaoController = TextEditingController();
+  final TextEditingController _categoriaController = TextEditingController();
+  final TextEditingController _localIdController = TextEditingController();
+  final TextEditingController _calibracaoController = TextEditingController();
+
+  bool _isSaving = false;
+
+  @override
+  void dispose() {
+    _patrimonioController.dispose();
+    _descricaoController.dispose();
+    _categoriaController.dispose();
+    _localIdController.dispose();
+    _calibracaoController.dispose();
+    super.dispose();
+  }
+
+  // Tenta salvar o instrumento
+  Future<void> _saveInstrument() async {
+    // Valida o formulário
+    if (!_formKey.currentState!.validate()) {
+      return;
+    }
+
+    setState(() { _isSaving = true; });
+
+    // Converte os valores
+    final String patrimonio = _patrimonioController.text.trim();
+    final String descricao = _descricaoController.text.trim();
+    final String? categoria = _categoriaController.text.trim().isEmpty
+        ? null : _categoriaController.text.trim();
+    final int? localId = int.tryParse(_localIdController.text.trim());
+    final String? calibracao = _calibracaoController.text.trim().isEmpty
+        ? null : _calibracaoController.text.trim();
+
+
+    // Chama a função de salvar (que é o _addNewInstrument da InstrumentosAdminPage)
+    final bool success = await widget.onSave(
+      patrimonio,
+      descricao,
+      categoria,
+      localId,
+      calibracao,
+    );
+
+    if (success && mounted) {
+      // Se salvou com sucesso, fecha o dialog
+      Navigator.of(context).pop();
+    } else {
+      // Se falhou, apenas para de carregar (o snackbar de erro já foi mostrado)
+      setState(() { _isSaving = false; });
+    }
+  }
+  
+  // Mostra o seletor de data
+  Future<void> _selectDate() async {
+    DateTime? picked = await showDatePicker(
+      context: context,
+      initialDate: DateTime.now(),
+      firstDate: DateTime(2000),
+      lastDate: DateTime(2101),
+    );
+
+    if (picked != null) {
+      // Formata a data como YYYY-MM-DD (ISO String)
+      String formattedDate = DateFormat('yyyy-MM-dd').format(picked);
+      setState(() {
+        _calibracaoController.text = formattedDate;
+      });
+    }
+  }
+
+
+  @override
+  Widget build(BuildContext context) {
+    const Color primaryColor = Color(0xFF080023);
+    const Color inputFillColor = Color.fromARGB(255, 30, 24, 53); // Um pouco mais claro que o fundo
+    const Color borderColor = Colors.white30;
+    const Color hintColor = Colors.white60;
+
+    return AlertDialog(
+      backgroundColor: primaryColor,
+      title: const Text(
+        'Adicionar Novo Instrumento',
+        style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold),
+      ),
+      content: Form(
+        key: _formKey,
+        child: SingleChildScrollView(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              // Campo PATRIMÔNIO (Obrigatório)
+              TextFormField(
+                controller: _patrimonioController,
+                style: const TextStyle(color: Colors.white),
+                decoration: _buildInputDecoration(label: 'Patrimônio *', icon: Icons.qr_code),
+                validator: (value) {
+                  if (value == null || value.trim().isEmpty) {
+                    return 'O patrimônio é obrigatório';
+                  }
+                  return null;
+                },
+              ),
+              const SizedBox(height: 16),
+
+              // Campo DESCRIÇÃO (Obrigatório)
+              TextFormField(
+                controller: _descricaoController,
+                style: const TextStyle(color: Colors.white),
+                decoration: _buildInputDecoration(label: 'Descrição *', icon: Icons.edit),
+                validator: (value) {
+                  if (value == null || value.trim().isEmpty) {
+                    return 'A descrição é obrigatória';
+                  }
+                  return null;
+                },
+              ),
+              const SizedBox(height: 16),
+
+              // Campo CATEGORIA
+              TextFormField(
+                controller: _categoriaController,
+                style: const TextStyle(color: Colors.white),
+                decoration: _buildInputDecoration(label: 'Categoria', icon: Icons.category),
+              ),
+              const SizedBox(height: 16),
+              
+              // Campo LOCAL ID
+              TextFormField(
+                controller: _localIdController,
+                style: const TextStyle(color: Colors.white),
+                keyboardType: TextInputType.number,
+                decoration: _buildInputDecoration(label: 'ID do Local', icon: Icons.location_on),
+                 validator: (value) {
+                  if (value == null || value.trim().isEmpty) return null; // Campo opcional
+                  if (int.tryParse(value.trim()) == null) {
+                    return 'O ID deve ser um número';
+                  }
+                  return null;
+                },
+              ),
+              const SizedBox(height: 16),
+              
+              // Campo PRÓXIMA CALIBRAÇÃO
+              TextFormField(
+                controller: _calibracaoController,
+                style: const TextStyle(color: Colors.white),
+                decoration: _buildInputDecoration(
+                  label: 'Próxima Calibração (yyyy-mm-dd)', 
+                  icon: Icons.calendar_today
+                ).copyWith(
+                  // Adiciona um botão de calendário no final
+                  suffixIcon: IconButton(
+                    icon: const Icon(Icons.calendar_month_outlined, color: hintColor),
+                    onPressed: _selectDate,
+                  )
+                ),
+                readOnly: true, // Impede digitação manual
+                onTap: _selectDate, // Abre o seletor ao tocar
+              ),
+            ],
+          ),
+        ),
+      ),
+      actions: [
+        // Botão CANCELAR
+        TextButton(
+          onPressed: () => Navigator.of(context).pop(),
+          child: const Text('Cancelar', style: TextStyle(color: Colors.white70)),
+        ),
+        // Botão SALVAR
+        ElevatedButton(
+          onPressed: _isSaving ? null : _saveInstrument, // Desativa se estiver salvando
+          style: ElevatedButton.styleFrom(
+            backgroundColor: const Color(0xFF3B82F6),
+            foregroundColor: Colors.white,
+          ),
+          child: _isSaving
+              ? const SizedBox(
+                  width: 20,
+                  height: 20,
+                  child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
+                )
+              : const Text('Salvar'),
+        ),
+      ],
+    );
+  }
+
+  // Helper para estilizar os campos de texto do formulário
+  InputDecoration _buildInputDecoration({required String label, required IconData icon}) {
+    const Color inputFillColor = Color.fromARGB(255, 30, 24, 53);
+    const Color borderColor = Colors.white30;
+    const Color hintColor = Colors.white60;
+
+    return InputDecoration(
+      labelText: label,
+      labelStyle: const TextStyle(color: hintColor),
+      hintStyle: const TextStyle(color: hintColor),
+      prefixIcon: Icon(icon, color: hintColor, size: 20),
+      filled: true,
+      fillColor: inputFillColor,
+      // Borda padrão
+      border: OutlineInputBorder(
+        borderRadius: BorderRadius.circular(12),
+        borderSide: const BorderSide(color: borderColor),
+      ),
+      // Borda habilitada
+      enabledBorder: OutlineInputBorder(
+        borderRadius: BorderRadius.circular(12),
+        borderSide: const BorderSide(color: borderColor),
+      ),
+      // Borda em foco (quando o usuário clica)
+      focusedBorder: OutlineInputBorder(
+        borderRadius: BorderRadius.circular(12),
+        borderSide: const BorderSide(color: Color(0xFF3B82F6), width: 2), // Borda azul de destaque
       ),
     );
   }
