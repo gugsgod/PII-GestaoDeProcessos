@@ -14,6 +14,7 @@ import '../widgets/admin/home_admin/admin_drawer.dart';
 import '../widgets/admin/home_admin/update_status_bar.dart';
 // import '../widgets/admin/home_admin/quick_actions.dart';
 import 'animated_network_background.dart';
+import '../widgets/admin/materiais_admin/table_actions_menu.dart';
 
 // Enum para o status do instrumento, facilita o controle
 enum InstrumentStatus { ativo, inativo }
@@ -143,12 +144,34 @@ class _InstrumentosAdminPageState extends State<InstrumentosAdminPage> {
     _load();
   }
 
+  // ----- Ações da Tabela -----
+  void _editInstrumento(Instrument instrumento) {
+    // TODO: Implementar lógica de edição
+    // 1. Abrir um Dialog (talvez reutilizar o _AddUserDialog em modo de edição)
+    // 2. Passar os dados da 'pessoa' para o dialog
+    // 3. Chamar a API de UPDATE (PUT /usuarios/{id})
+    _showSnackBar(
+      "Ação 'Editar' para ${instrumento.descricao}",
+      isError: false,
+    );
+  }
+
+  /// Placeholder para a lógica de remoção
+  void _removeInstrumento(Instrument instrumento) {
+    // TODO: Implementar lógica de remoção
+    // 1. Mostrar um dialog de confirmação (AlertDialog)
+    // 2. Se confirmar, chamar a API de DELETE (DELETE /usuarios/{id})
+    // 3. Se sucesso, chamar _fetchPessoas() para atualizar a lista
+    _showSnackBar(
+      "Ação 'Remover' para ${instrumento.descricao} (ID: ${instrumento.patrimonio})",
+      isError: true,
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     if (_isLoading) {
-      return const Scaffold(
-        body: Center(child: CircularProgressIndicator()),
-      );
+      return const Scaffold(body: Center(child: CircularProgressIndicator()));
     }
 
     if (_errorMessage != null) {
@@ -200,7 +223,9 @@ class _InstrumentosAdminPageState extends State<InstrumentosAdminPage> {
               UpdateStatusBar(
                 isDesktop: isDesktop,
                 lastUpdated: _lastUpdated,
-                onUpdate: () { _load(); },
+                onUpdate: () {
+                  _load();
+                },
               ),
               const SizedBox(height: 48),
               const Text(
@@ -255,6 +280,19 @@ class _InstrumentosAdminPageState extends State<InstrumentosAdminPage> {
             ],
           ),
         ),
+      ),
+    );
+  }
+
+  void _showSnackBar(String message, {bool isError = false}) {
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(message),
+        backgroundColor: isError ? Colors.red.shade800 : Colors.green.shade800,
+        behavior: SnackBarBehavior.floating,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+        margin: const EdgeInsets.all(24),
       ),
     );
   }
@@ -317,11 +355,10 @@ class _InstrumentosAdminPageState extends State<InstrumentosAdminPage> {
       padding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 16.0),
       child: const Row(
         children: [
-          Expanded(flex: 2, child: Text('ID', style: headerStyle)),
-          Expanded(flex: 3, child: Text('Patrimônio', style: headerStyle)),
+          Expanded(flex: 2, child: Text('Código', style: headerStyle)),
+          Expanded(flex: 3, child: Text('Nome', style: headerStyle)),
           Expanded(flex: 2, child: Text('Status', style: headerStyle)),
           Expanded(flex: 2, child: Text('ID Local', style: headerStyle)),
-          Expanded(flex: 2, child: Text('ID Resp.', style: headerStyle)),
           Expanded(
             flex: 3,
             child: Text('Venc. Calibração', style: headerStyle),
@@ -344,7 +381,7 @@ class _InstrumentosAdminPageState extends State<InstrumentosAdminPage> {
           Expanded(
             flex: 2,
             child: Text(
-              item.id,
+              item.patrimonio,
               style: cellStyle,
               overflow: TextOverflow.ellipsis,
             ),
@@ -352,7 +389,7 @@ class _InstrumentosAdminPageState extends State<InstrumentosAdminPage> {
           Expanded(
             flex: 3,
             child: Text(
-              item.patrimonio,
+              item.descricao,
               style: const TextStyle(
                 color: Colors.black,
                 fontWeight: FontWeight.bold,
@@ -362,19 +399,19 @@ class _InstrumentosAdminPageState extends State<InstrumentosAdminPage> {
           Expanded(flex: 2, child: _StatusChip(status: item.status)),
           Expanded(flex: 2, child: Text(item.localAtual, style: cellStyle)),
           Expanded(
-            flex: 2,
-            child: Text(item.responsavelAtual, style: cellStyle),
-          ),
-          Expanded(
             flex: 3,
             child: _CalibrationCell(date: item.proximaCalibracaoEm),
           ),
           SizedBox(
             width: 56,
             child: Center(
-              child: IconButton(
-                icon: const Icon(Icons.more_horiz, color: Colors.black54),
-                onPressed: () {},
+              child: TableActionsMenu(
+                onEditPressed: () {
+                  _editInstrumento(item);
+                },
+                onRemovePressed: () {
+                  _removeInstrumento(item);
+                },
               ),
             ),
           ),
