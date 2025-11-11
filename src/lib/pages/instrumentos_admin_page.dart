@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import '../widgets/admin/home_admin/admin_drawer.dart';
 import '../widgets/admin/home_admin/update_status_bar.dart';
+import '../widgets/admin/materiais_admin/table_actions_menu.dart';
 import 'animated_network_background.dart';
 import 'dart:math';
 import 'dart:async';
@@ -40,9 +41,9 @@ class Instrument {
     this.ativo = true,
     DateTime? createdAt,
     DateTime? updatedAt,
-  })  : proximaCalibracaoEm = proximaCalibracaoEm ?? DateTime.now(),
-        createdAt = createdAt ?? DateTime.now(),
-        updatedAt = updatedAt ?? DateTime.now();
+  }) : proximaCalibracaoEm = proximaCalibracaoEm ?? DateTime.now(),
+       createdAt = createdAt ?? DateTime.now(),
+       updatedAt = updatedAt ?? DateTime.now();
 
   factory Instrument.fromJson(Map<String, dynamic> map) {
     DateTime _parseDate(dynamic dateString, {required DateTime fallback}) {
@@ -62,7 +63,10 @@ class Instrument {
           : InstrumentStatus.inativo,
       localAtual: map['local_atual_id']?.toString() ?? 'N/A',
       responsavelAtual: map['responsavel_atual_id']?.toString() ?? 'N/A',
-      proximaCalibracaoEm: _parseDate(map['proxima_calibracao_em'], fallback: DateTime.now()),
+      proximaCalibracaoEm: _parseDate(
+        map['proxima_calibracao_em'],
+        fallback: DateTime.now(),
+      ),
       ativo: map['ativo'] as bool? ?? false,
       createdAt: _parseDate(map['created_at'], fallback: DateTime.now()),
       updatedAt: _parseDate(map['updated_at'], fallback: DateTime.now()),
@@ -152,8 +156,14 @@ class _InstrumentosAdminPageState extends State<InstrumentosAdminPage> {
               value: status,
               decoration: const InputDecoration(labelText: 'Status'),
               items: const [
-                DropdownMenuItem(value: InstrumentStatus.ativo, child: Text('Ativo')),
-                DropdownMenuItem(value: InstrumentStatus.inativo, child: Text('Inativo')),
+                DropdownMenuItem(
+                  value: InstrumentStatus.ativo,
+                  child: Text('Ativo'),
+                ),
+                DropdownMenuItem(
+                  value: InstrumentStatus.inativo,
+                  child: Text('Inativo'),
+                ),
               ],
               onChanged: (value) {
                 if (value != null) status = value;
@@ -168,14 +178,18 @@ class _InstrumentosAdminPageState extends State<InstrumentosAdminPage> {
           ),
           ElevatedButton(
             onPressed: () {
-              if (idController.text.isEmpty || patrimonioController.text.isEmpty) return;
+              if (idController.text.isEmpty ||
+                  patrimonioController.text.isEmpty)
+                return;
 
               setState(() {
-                _instruments.add(Instrument(
-                  id: idController.text,
-                  patrimonio: patrimonioController.text,
-                  status: status,
-                ));
+                _instruments.add(
+                  Instrument(
+                    id: idController.text,
+                    patrimonio: patrimonioController.text,
+                    status: status,
+                  ),
+                );
               });
               Navigator.pop(context);
             },
@@ -189,10 +203,36 @@ class _InstrumentosAdminPageState extends State<InstrumentosAdminPage> {
   List<Instrument> get _filteredInstruments {
     if (_searchQuery.isEmpty) return _instruments;
     return _instruments
-        .where((i) =>
-            i.patrimonio.toLowerCase().contains(_searchQuery.toLowerCase()) ||
-            i.id.toLowerCase().contains(_searchQuery.toLowerCase()))
+        .where(
+          (i) =>
+              i.patrimonio.toLowerCase().contains(_searchQuery.toLowerCase()) ||
+              i.id.toLowerCase().contains(_searchQuery.toLowerCase()),
+        )
         .toList();
+  }
+
+  /// Placeholder para a lógica de edição
+  void _editInstrumento(Instrument instrumento) {
+    // TODO: Implementar lógica de edição
+    // 1. Abrir um Dialog (talvez reutilizar o _AddUserDialog em modo de edição)
+    // 2. Passar os dados da 'pessoa' para o dialog
+    // 3. Chamar a API de UPDATE (PUT /usuarios/{id})
+    _showSnackBar(
+      "Ação 'Editar' para ${instrumento.descricao}",
+      isError: false,
+    );
+  }
+
+  /// Placeholder para a lógica de remoção
+  void _removeInstrumento(Instrument instrumento) {
+    // TODO: Implementar lógica de remoção
+    // 1. Mostrar um dialog de confirmação (AlertDialog)
+    // 2. Se confirmar, chamar a API de DELETE (DELETE /usuarios/{id})
+    // 3. Se sucesso, chamar _fetchPessoas() para atualizar a lista
+    _showSnackBar(
+      "Ação 'Remover' para ${instrumento.descricao} (ID: ${instrumento.patrimonio})",
+      isError: true,
+    );
   }
 
   @override
@@ -208,7 +248,10 @@ class _InstrumentosAdminPageState extends State<InstrumentosAdminPage> {
     if (_errorMessage != null) {
       return Scaffold(
         body: Center(
-          child: Text('Erro: $_errorMessage', style: const TextStyle(color: Colors.red)),
+          child: Text(
+            'Erro: $_errorMessage',
+            style: const TextStyle(color: Colors.red),
+          ),
         ),
       );
     }
@@ -219,8 +262,14 @@ class _InstrumentosAdminPageState extends State<InstrumentosAdminPage> {
         toolbarHeight: 80,
         backgroundColor: secondaryColor,
         elevation: 0,
-        flexibleSpace: const AnimatedNetworkBackground(numberOfParticles: 35, maxDistance: 50.0),
-        title: const Text('Instrumentos', style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
+        flexibleSpace: const AnimatedNetworkBackground(
+          numberOfParticles: 35,
+          maxDistance: 50.0,
+        ),
+        title: const Text(
+          'Instrumentos',
+          style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold),
+        ),
         iconTheme: const IconThemeData(color: Colors.white),
         actions: [
           Padding(
@@ -229,18 +278,29 @@ class _InstrumentosAdminPageState extends State<InstrumentosAdminPage> {
           ),
         ],
       ),
-      drawer: AdminDrawer(primaryColor: primaryColor, secondaryColor: secondaryColor),
+      drawer: AdminDrawer(
+        primaryColor: primaryColor,
+        secondaryColor: secondaryColor,
+      ),
       body: SingleChildScrollView(
         child: Padding(
           padding: const EdgeInsets.all(24.0),
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              UpdateStatusBar(isDesktop: isDesktop, lastUpdated: _lastUpdated, onUpdate: _load),
+              UpdateStatusBar(
+                isDesktop: isDesktop,
+                lastUpdated: _lastUpdated,
+                onUpdate: _load,
+              ),
               const SizedBox(height: 48),
               const Text(
                 "Gestão de Instrumentos",
-                style: TextStyle(color: Colors.white, fontSize: 32, fontWeight: FontWeight.bold),
+                style: TextStyle(
+                  color: Colors.white,
+                  fontSize: 32,
+                  fontWeight: FontWeight.bold,
+                ),
               ),
               const SizedBox(height: 8),
               const Text(
@@ -287,12 +347,28 @@ class _InstrumentosAdminPageState extends State<InstrumentosAdminPage> {
 
               Container(
                 width: double.infinity,
-                decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(16)),
+                decoration: BoxDecoration(
+                  color: Colors.white,
+                  borderRadius: BorderRadius.circular(16),
+                ),
                 child: _buildDataTable(),
               ),
             ],
           ),
         ),
+      ),
+    );
+  }
+
+  void _showSnackBar(String message, {bool isError = false}) {
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(message),
+        backgroundColor: isError ? Colors.red.shade800 : Colors.green.shade800,
+        behavior: SnackBarBehavior.floating,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+        margin: const EdgeInsets.all(24),
       ),
     );
   }
@@ -317,7 +393,10 @@ class _InstrumentosAdminPageState extends State<InstrumentosAdminPage> {
           physics: const NeverScrollableScrollPhysics(),
           padding: EdgeInsets.zero,
           itemCount: filtered.length,
-          separatorBuilder: (_, __) => const Divider(color: Color.fromARGB(59, 102, 102, 102), height: 1),
+          separatorBuilder: (_, __) => const Divider(
+            color: Color.fromARGB(59, 102, 102, 102),
+            height: 1,
+          ),
           itemBuilder: (_, i) => _buildInstrumentRow(filtered[i]),
         ),
       ],
@@ -325,14 +404,26 @@ class _InstrumentosAdminPageState extends State<InstrumentosAdminPage> {
   }
 
   Widget _buildTableHeader() {
-    const headerStyle = TextStyle(fontWeight: FontWeight.bold, color: Colors.black54);
+    const headerStyle = TextStyle(
+      fontWeight: FontWeight.bold,
+      color: Colors.black54,
+    );
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 16.0),
       child: const Row(
         children: [
-          Expanded(flex: 2, child: Text('ID', style: headerStyle)),
-          Expanded(flex: 3, child: Text('Patrimônio', style: headerStyle)),
+          Expanded(flex: 2, child: Text('Patrimônio', style: headerStyle)),
+          Expanded(flex: 2, child: Text('Nome', style: headerStyle)),
           Expanded(flex: 2, child: Text('Status', style: headerStyle)),
+          Expanded(flex: 2, child: Text('Base Atual', style: headerStyle)),
+          Expanded(
+            flex: 2,
+            child: Text('Venc. Calibração', style: headerStyle),
+          ),
+          SizedBox(
+            width: 56,
+            child: Center(child: Text('Ações', style: headerStyle)),
+          ),
         ],
       ),
     );
@@ -344,12 +435,39 @@ class _InstrumentosAdminPageState extends State<InstrumentosAdminPage> {
       padding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 12.0),
       child: Row(
         children: [
-          Expanded(flex: 2, child: Text(item.id, style: cellStyle)),
+          Expanded(flex: 2, child: Text(item.patrimonio, style: cellStyle)),
           Expanded(
             flex: 3,
-            child: Text(item.patrimonio, style: const TextStyle(color: Colors.black, fontWeight: FontWeight.bold)),
+            child: Text(
+              item.descricao,
+              style: const TextStyle(
+                color: Colors.black,
+                fontWeight: FontWeight.bold,
+              ),
+            ),
           ),
           Expanded(flex: 2, child: _StatusChip(status: item.status)),
+          Expanded(flex: 2, child: Text(item.localAtual)),
+          Expanded(
+            flex: 2,
+            child: Text(
+              // formata DateTime para string legível
+              DateFormat('dd/MM/yyyy').format(item.proximaCalibracaoEm),
+            ),
+          ),
+          SizedBox(
+            width: 56,
+            child: Center(
+              child: TableActionsMenu(
+                onEditPressed: () {
+                  _editInstrumento(item);
+                },
+                onRemovePressed: () {
+                  _removeInstrumento(item);
+                },
+              ),
+            ),
+          ),
         ],
       ),
     );
@@ -363,15 +481,27 @@ class _StatusChip extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final isAtivo = status == InstrumentStatus.ativo;
-    final backgroundColor = isAtivo ? Colors.green.shade100 : Colors.red.shade100;
+    final backgroundColor = isAtivo
+        ? Colors.green.shade100
+        : Colors.red.shade100;
     final textColor = isAtivo ? Colors.green.shade800 : Colors.red.shade800;
     final text = isAtivo ? 'Ativo' : 'Inativo';
     return Align(
       alignment: Alignment.centerLeft,
       child: Container(
         padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
-        decoration: BoxDecoration(color: backgroundColor, borderRadius: BorderRadius.circular(16)),
-        child: Text(text, style: TextStyle(color: textColor, fontSize: 12, fontWeight: FontWeight.bold)),
+        decoration: BoxDecoration(
+          color: backgroundColor,
+          borderRadius: BorderRadius.circular(16),
+        ),
+        child: Text(
+          text,
+          style: TextStyle(
+            color: textColor,
+            fontSize: 12,
+            fontWeight: FontWeight.bold,
+          ),
+        ),
       ),
     );
   }
