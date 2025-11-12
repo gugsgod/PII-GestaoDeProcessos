@@ -396,6 +396,45 @@ class _InstrumentosAdminPageState extends State<InstrumentosAdminPage> {
   Widget _buildDataTable() {
     final filtered = _filteredInstruments;
 
+    if (_isLoading) {
+      return const SizedBox(
+        height: 500,
+        child: Center(
+          child: CircularProgressIndicator(
+            valueColor: AlwaysStoppedAnimation<Color>(Color(0xFF080023)),
+          ),
+        ),
+      );
+    }
+
+    if (_errorMessage != null) {
+      return SizedBox(
+        height: 500,
+        child: Center(
+          child: Column(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              const Icon(Icons.error_outline, color: Colors.red, size: 48),
+              const SizedBox(height: 16),
+              Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 16.0),
+                child: Text(
+                  _errorMessage!,
+                  textAlign: TextAlign.center,
+                  style: const TextStyle(color: Colors.black87, fontSize: 16),
+                ),
+              ),
+              const SizedBox(height: 16),
+              ElevatedButton(
+                onPressed: _load,
+                child: const Text("Tentar Novamente"),
+              ),
+            ],
+          ),
+        ),
+      );
+    }
+
     if (filtered.isEmpty) {
       return const Padding(
         padding: EdgeInsets.all(32.0),

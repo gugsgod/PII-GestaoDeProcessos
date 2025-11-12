@@ -15,13 +15,9 @@ Future<List<Map<String, dynamic>>> fetchInstrumentos(String token) async {
       headers: {
         'Content-Type': 'application/json',
         'Authorization': 'Bearer $token',
-        
-        // ================== CORREÇÃO AQUI ==================
-        // Força a requisição a ir para a rede e não usar cache.
         'Cache-Control': 'no-cache, no-store, must-revalidate',
         'Pragma': 'no-cache',
         'Expires': '0',
-        // ===================================================
       },
       // Adiciona um timeout de 5 segundos
     ).timeout(const Duration(seconds: 5));
