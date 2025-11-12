@@ -2,10 +2,13 @@ import 'dart:convert';
 import 'dart:math';
 import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
+import 'package:provider/provider.dart';
+import 'package:src/pages/instrumentos_admin_page.dart';
 import '../widgets/admin/home_admin/admin_drawer.dart';
 import 'animated_network_background.dart';
 import '../widgets/admin/home_admin/update_status_bar.dart';
 import '../widgets/admin/materiais_admin/filter_bar.dart';
+import '../auth/auth_store.dart';
 
 class MaterialItem {
   final int id;
@@ -58,6 +61,16 @@ class _MateriaisAdminPageState extends State<MateriaisAdminPage> {
   String? _errorMessage;
   List<MaterialItem> _materiais = [];
 
+    final List<String> _categories = [
+    'Todas as Categorias',
+    'Cabos',
+    'Relés',
+    'Conectores',
+    'EPIs',
+    'Ferramentas',
+    'Peças',
+  ];
+
   @override
   void initState() {
     super.initState();
@@ -80,10 +93,7 @@ class _MateriaisAdminPageState extends State<MateriaisAdminPage> {
 
     const String baseUrl = "http://localhost:8080";
 
-    final queryParams = <String, String>{
-      "limit": "100",
-      "page": "1",
-    };
+    final queryParams = <String, String>{"limit": "100", "page": "1"};
 
     final searchQuery = _searchController.text.trim();
     if (searchQuery.isNotEmpty) {
@@ -94,10 +104,15 @@ class _MateriaisAdminPageState extends State<MateriaisAdminPage> {
       queryParams["categoria"] = _selectedCategory;
     }
 
-    final uri = Uri.parse("$baseUrl/materiais").replace(queryParameters: queryParams);
+    final uri = Uri.parse(
+      "$baseUrl/materiais",
+    ).replace(queryParameters: queryParams);
 
     try {
-      final response = await http.get(uri, headers: {"Accept": "application/json"});
+      final response = await http.get(
+        uri,
+        headers: {"Accept": "application/json"},
+      );
 
       if (response.statusCode == 200) {
         final decodedBody = json.decode(utf8.decode(response.bodyBytes));
@@ -105,7 +120,9 @@ class _MateriaisAdminPageState extends State<MateriaisAdminPage> {
         _materiais = data.map((json) => MaterialItem.fromJson(json)).toList();
       } else {
         final errorBody = json.decode(utf8.decode(response.bodyBytes));
-        throw Exception("Falha ao carregar materiais: ${response.statusCode} - ${errorBody["error"]}");
+        throw Exception(
+          "Falha ao carregar materiais: ${response.statusCode} - ${errorBody["error"]}",
+        );
       }
     } catch (e) {
       _errorMessage = "Erro ao conectar com o servidor: ${e.toString()}";
@@ -121,137 +138,75 @@ class _MateriaisAdminPageState extends State<MateriaisAdminPage> {
     _fetchMateriais();
   }
 
-  void _showAddMaterialDialog() {
-    final TextEditingController codigoController = TextEditingController();
-    final TextEditingController nomeController = TextEditingController();
-    final TextEditingController estoqueController = TextEditingController();
-    String categoriaSelecionada = 'Cabos';
-    String statusSelecionado = 'Ativo';
+  // ---- Chama a API ----
+  Future<bool> _addNewMaterial(
+    int codSap,
+    String descricao,
+    String? apelido,
+    String? categoria,
+    String? unidade,
+  ) async {
+    // 1. Obter o token (NECESSÁRIO PARA O POST)
+    final auth = context.read<AuthStore>();
+    final token = auth.token;
+    if (token == null || !auth.isAuthenticated) {
+      _showSnackBar("Erro: Você não está autenticado.", isError: true);
+      return false;
+    }
 
+    const String baseUrl = "http://localhost:8080";
+    final uri = Uri.parse("$baseUrl/materiais");
+
+    try {
+      final response = await http.post(
+        uri,
+        headers: {
+          "Content-Type": "application/json",
+          "Accept": "application/json",
+          "Authorization": "Bearer $token", // <- Token de Admin é crucial
+        },
+        body: json.encode({
+          "cod_sap": codSap,
+          "descricao": descricao,
+          "apelido": (apelido == null || apelido.isEmpty) ? null : apelido,
+          "categoria": (categoria == null || categoria.isEmpty)
+              ? null
+              : categoria,
+          "unidade": (unidade == null || unidade.isEmpty) ? null : unidade,
+        }),
+      );
+
+      if (response.statusCode == 201) {
+        _showSnackBar(
+          "Material '$descricao' cadastrado com sucesso!",
+          isError: false,
+        );
+        _fetchMateriais(); // Atualiza a lista
+        return true;
+      } else {
+        final errorBody = json.decode(utf8.decode(response.bodyBytes));
+        throw Exception(errorBody["error"] ?? "Falha ao cadastrar material");
+      }
+    } catch (e) {
+      _showSnackBar(
+        "Erro: ${e.toString().replaceAll("Exception: ", "")}",
+        isError: true,
+      );
+      return false;
+    }
+  }
+
+  void _showAddMaterialDialog() {
     showDialog(
       context: context,
       builder: (BuildContext context) {
-        return AlertDialog(
-          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-          title: const Text(
-            'Adicionar Novo Material',
-            style: TextStyle(fontWeight: FontWeight.bold),
-          ),
-          content: SingleChildScrollView(
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                TextField(
-                  controller: codigoController,
-                  keyboardType: TextInputType.number,
-                  decoration: const InputDecoration(
-                    labelText: 'Código',
-                    border: OutlineInputBorder(),
-                  ),
-                ),
-                const SizedBox(height: 16),
-                TextField(
-                  controller: nomeController,
-                  decoration: const InputDecoration(
-                    labelText: 'Nome',
-                    border: OutlineInputBorder(),
-                  ),
-                ),
-                const SizedBox(height: 16),
-                DropdownButtonFormField<String>(
-                  value: categoriaSelecionada,
-                  decoration: const InputDecoration(
-                    labelText: 'Categoria',
-                    border: OutlineInputBorder(),
-                  ),
-                  items: const [
-                    DropdownMenuItem(value: 'Cabos', child: Text('Cabos')),
-                    DropdownMenuItem(value: 'Relés', child: Text('Relés')),
-                    DropdownMenuItem(value: 'Conectores', child: Text('Conectores')),
-                    DropdownMenuItem(value: 'EPIs', child: Text('EPIs')),
-                  ],
-                  onChanged: (value) {
-                    if (value != null) {
-                      categoriaSelecionada = value;
-                    }
-                  },
-                ),
-                const SizedBox(height: 16),
-                TextField(
-                  controller: estoqueController,
-                  keyboardType: TextInputType.number,
-                  decoration: const InputDecoration(
-                    labelText: 'Estoque',
-                    border: OutlineInputBorder(),
-                  ),
-                ),
-                const SizedBox(height: 16),
-                DropdownButtonFormField<String>(
-                  value: statusSelecionado,
-                  decoration: const InputDecoration(
-                    labelText: 'Status',
-                    border: OutlineInputBorder(),
-                  ),
-                  items: const [
-                    DropdownMenuItem(value: 'Ativo', child: Text('Ativo')),
-                    DropdownMenuItem(value: 'Inativo', child: Text('Inativo')),
-                  ],
-                  onChanged: (value) {
-                    if (value != null) {
-                      statusSelecionado = value;
-                    }
-                  },
-                ),
-              ],
-            ),
-          ),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.pop(context),
-              child: const Text('Cancelar'),
-            ),
-            ElevatedButton(
-              onPressed: () {
-                if (codigoController.text.isEmpty || nomeController.text.isEmpty) {
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    const SnackBar(
-                      content: Text('Preencha todos os campos obrigatórios!'),
-                      backgroundColor: Colors.redAccent,
-                    ),
-                  );
-                  return;
-                }
-
-                final novoMaterial = MaterialItem(
-                  id: _materiais.length + 1,
-                  codigoSap: int.tryParse(codigoController.text) ?? 0,
-                  descricao: nomeController.text,
-                  categoria: categoriaSelecionada,
-                  unidade: estoqueController.text,
-                  apelido: null,
-                  ativo: statusSelecionado == 'Ativo',
-                );
-
-                setState(() {
-                  _materiais.add(novoMaterial);
-                });
-
-                Navigator.pop(context);
-
-                ScaffoldMessenger.of(context).showSnackBar(
-                  const SnackBar(
-                    content: Text('Material adicionado com sucesso!'),
-                    backgroundColor: Colors.green,
-                  ),
-                );
-              },
-              style: ElevatedButton.styleFrom(
-                backgroundColor: const Color(0xFF3B82F6),
-                foregroundColor: Colors.white,
-              ),
-              child: const Text('Salvar'),
-            ),
-          ],
+        return _AddMaterialDialog(
+          // Passa as categorias (sem "Todas") para o dropdown
+          categories: _categories.where((c) => c != 'Todas as Categorias').toList(),
+          onSave: (codSap, descricao, apelido, categoria, unidade) async {
+            // Chama a nova função de API
+            return await _addNewMaterial(codSap, descricao, apelido, categoria, unidade);
+          },
         );
       },
     );
@@ -319,7 +274,9 @@ class _MateriaisAdminPageState extends State<MateriaisAdminPage> {
                 mainAxisAlignment: MainAxisAlignment.end,
                 children: [
                   OutlinedButton.icon(
-                    onPressed: () {},
+                    onPressed: () {
+                      // TODO: Criar lógica ao clicar em exportar.
+                    },
                     icon: const Icon(Icons.upload_file, color: Colors.white70),
                     label: const Text(
                       'Exportar',
@@ -375,6 +332,19 @@ class _MateriaisAdminPageState extends State<MateriaisAdminPage> {
             ],
           ),
         ),
+      ),
+    );
+  }
+
+  void _showSnackBar(String message, {bool isError = false}) {
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(message),
+        backgroundColor: isError ? Colors.red.shade800 : Colors.green.shade800,
+        behavior: SnackBarBehavior.floating,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+        margin: const EdgeInsets.all(24),
       ),
     );
   }
@@ -461,7 +431,10 @@ class _MateriaisAdminPageState extends State<MateriaisAdminPage> {
   }
 
   Widget _buildTableHeader() {
-    const headerStyle = TextStyle(fontWeight: FontWeight.bold, color: Colors.black54);
+    const headerStyle = TextStyle(
+      fontWeight: FontWeight.bold,
+      color: Colors.black54,
+    );
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 16.0),
       child: const Row(
@@ -471,7 +444,10 @@ class _MateriaisAdminPageState extends State<MateriaisAdminPage> {
           Expanded(flex: 3, child: Text('Categoria', style: headerStyle)),
           Expanded(flex: 3, child: Text('Unidade', style: headerStyle)),
           Expanded(flex: 2, child: Text('Status', style: headerStyle)),
-          SizedBox(width: 56, child: Center(child: Text('Ações', style: headerStyle))),
+          SizedBox(
+            width: 56,
+            child: Center(child: Text('Ações', style: headerStyle)),
+          ),
         ],
       ),
     );
@@ -483,15 +459,28 @@ class _MateriaisAdminPageState extends State<MateriaisAdminPage> {
       padding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 12.0),
       child: Row(
         children: [
-          Expanded(flex: 2, child: Text(item.codigoSap.toString(), style: cellStyle)),
+          Expanded(
+            flex: 2,
+            child: Text(item.codigoSap.toString(), style: cellStyle),
+          ),
           Expanded(
             flex: 4,
             child: Text(
               item.descricao,
-              style: const TextStyle(color: Colors.black, fontWeight: FontWeight.bold),
+              style: const TextStyle(
+                color: Colors.black,
+                fontWeight: FontWeight.bold,
+              ),
             ),
           ),
-          Expanded(flex: 3, child: _buildChip(item.categoria ?? '-', Colors.grey.shade300, Colors.black54)),
+          Expanded(
+            flex: 3,
+            child: _buildChip(
+              item.categoria ?? '-',
+              Colors.grey.shade300,
+              Colors.black54,
+            ),
+          ),
           Expanded(flex: 3, child: Text(item.unidade ?? '-', style: cellStyle)),
           Expanded(flex: 2, child: _buildStatusChip(item.status)),
           SizedBox(
@@ -531,9 +520,242 @@ class _MateriaisAdminPageState extends State<MateriaisAdminPage> {
 
   Widget _buildStatusChip(String status) {
     final bool isAtivo = status == 'Ativo';
-    final backgroundColor = isAtivo ? Colors.green.shade100 : Colors.red.shade100;
+    final backgroundColor = isAtivo
+        ? Colors.green.shade100
+        : Colors.red.shade100;
     final textColor = isAtivo ? Colors.green.shade800 : Colors.red.shade800;
 
     return _buildChip(status, backgroundColor, textColor);
+  }
+}
+
+class _AddMaterialDialog extends StatefulWidget {
+  final Future<bool> Function(
+    int codSap,
+    String descricao,
+    String? apelido,
+    String? categoria,
+    String? unidade,
+  ) onSave;
+  final List<String> categories; // Recebe a lista de categorias
+
+  const _AddMaterialDialog({required this.onSave, required this.categories});
+
+  @override
+  State<_AddMaterialDialog> createState() => _AddMaterialDialogState();
+}
+
+class _AddMaterialDialogState extends State<_AddMaterialDialog> {
+  final GlobalKey<FormState> _formKey = GlobalKey<FormState>();
+  final TextEditingController _codSapController = TextEditingController();
+  final TextEditingController _descricaoController = TextEditingController();
+  final TextEditingController _apelidoController = TextEditingController();
+  final TextEditingController _unidadeController = TextEditingController();
+  String? _selectedCategoria; // Categoria agora é opcional
+
+  bool _isSaving = false;
+
+  @override
+  void initState() {
+    super.initState();
+    // Inicia com a primeira categoria da lista (ou null se vazia)
+    _selectedCategoria = widget.categories.isNotEmpty ? widget.categories.first : null;
+  }
+
+  @override
+  void dispose() {
+    _codSapController.dispose();
+    _descricaoController.dispose();
+    _apelidoController.dispose();
+    _unidadeController.dispose();
+    super.dispose();
+  }
+
+  Future<void> _save() async {
+    if (!_formKey.currentState!.validate()) {
+      return;
+    }
+    setState(() { _isSaving = true; });
+
+    // O validador já garantiu que isso é um int
+    final int codSap = int.parse(_codSapController.text.trim());
+
+    final bool success = await widget.onSave(
+      codSap,
+      _descricaoController.text.trim(),
+      _apelidoController.text.trim(),
+      _selectedCategoria,
+      _unidadeController.text.trim(),
+    );
+
+    if (success && mounted) {
+      Navigator.of(context).pop();
+    } else {
+      setState(() { _isSaving = false; });
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    const Color primaryColor = Color(0xFF080023);
+
+    return AlertDialog(
+      backgroundColor: primaryColor,
+      title: const Text(
+        'Adicionar Novo Material',
+        style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold),
+      ),
+      content: Form(
+        key: _formKey,
+        child: SingleChildScrollView(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              // Cód. SAP (Obrigatório)
+              TextFormField(
+                controller: _codSapController,
+                style: const TextStyle(color: Colors.white),
+                keyboardType: TextInputType.number,
+                decoration: _buildInputDecoration(label: 'Cód. SAP *', icon: Icons.qr_code),
+                validator: (value) {
+                  if (value == null || value.trim().isEmpty) {
+                    return 'O Cód. SAP é obrigatório';
+                  }
+                  if (int.tryParse(value.trim()) == null) {
+                    return 'Deve ser um número válido';
+                  }
+                  return null;
+                },
+              ),
+              const SizedBox(height: 16),
+              // Descrição (Obrigatório)
+              TextFormField(
+                controller: _descricaoController,
+                style: const TextStyle(color: Colors.white),
+                decoration: _buildInputDecoration(label: 'Descrição *', icon: Icons.description),
+                validator: (value) {
+                  if (value == null || value.trim().isEmpty) {
+                    return 'A descrição é obrigatória';
+                  }
+                  return null;
+                },
+              ),
+              const SizedBox(height: 16),
+              // Apelido (Opcional)
+              TextFormField(
+                controller: _apelidoController,
+                style: const TextStyle(color: Colors.white),
+                decoration: _buildInputDecoration(label: 'Apelido', icon: Icons.label_outline),
+              ),
+              const SizedBox(height: 16),
+              // Categoria (Opcional - Dropdown)
+              _buildDropdown(
+                value: _selectedCategoria,
+                hint: 'Selecione uma categoria',
+                items: widget.categories,
+                onChanged: (String? newValue) {
+                  if (newValue != null) {
+                    setState(() { _selectedCategoria = newValue; });
+                  }
+                },
+              ),
+              const SizedBox(height: 16),
+              // Unidade (Opcional)
+              TextFormField(
+                controller: _unidadeController,
+                style: const TextStyle(color: Colors.white),
+                decoration: _buildInputDecoration(label: 'Unidade (ex: PC, M, KG)', icon: Icons.straighten),
+              ),
+            ],
+          ),
+        ),
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.of(context).pop(),
+          child: const Text('Cancelar', style: TextStyle(color: Colors.white70)),
+        ),
+        ElevatedButton(
+          onPressed: _isSaving ? null : _save,
+          style: ElevatedButton.styleFrom(
+            backgroundColor: const Color(0xFF3B82F6),
+            foregroundColor: Colors.white,
+          ),
+          child: _isSaving
+              ? const SizedBox(
+                  width: 20,
+                  height: 20,
+                  child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
+                )
+              : const Text('Salvar'),
+        ),
+      ],
+    );
+  }
+
+  // Helper para o Dropdown (estilo dark)
+  Widget _buildDropdown({
+    required String? value,
+    required String hint,
+    required List<String> items,
+    required ValueChanged<String?> onChanged,
+  }) {
+    const Color inputFillColor = Color.fromARGB(255, 30, 24, 53);
+    const Color borderColor = Colors.white30;
+    const Color hintColor = Colors.white60;
+
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
+      decoration: BoxDecoration(
+        color: inputFillColor,
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: borderColor),
+      ),
+      child: DropdownButtonHideUnderline(
+        child: DropdownButton<String>(
+          value: value,
+          isExpanded: true,
+          hint: Text(hint, style: const TextStyle(color: hintColor)),
+          dropdownColor: const Color(0xFF080023), // Fundo do menu
+          icon: const Icon(Icons.arrow_drop_down, color: hintColor),
+          style: const TextStyle(color: Colors.white, fontSize: 16),
+          onChanged: onChanged,
+          items: items.map<DropdownMenuItem<String>>((String displayValue) {
+            return DropdownMenuItem<String>(
+              value: displayValue,
+              child: Text(displayValue),
+            );
+          }).toList(),
+        ),
+      ),
+    );
+  }
+
+  // Helper para estilizar os campos de texto (copiado dos outros popups)
+  InputDecoration _buildInputDecoration({required String label, required IconData icon}) {
+    const Color inputFillColor = Color.fromARGB(255, 30, 24, 53);
+    const Color borderColor = Colors.white30;
+    const Color hintColor = Colors.white60;
+
+    return InputDecoration(
+      labelText: label,
+      labelStyle: const TextStyle(color: hintColor),
+      hintStyle: const TextStyle(color: hintColor),
+      prefixIcon: Icon(icon, color: hintColor, size: 20),
+      filled: true,
+      fillColor: inputFillColor,
+      border: OutlineInputBorder(
+        borderRadius: BorderRadius.circular(12),
+        borderSide: const BorderSide(color: borderColor),
+      ),
+      enabledBorder: OutlineInputBorder(
+        borderRadius: BorderRadius.circular(12),
+        borderSide: const BorderSide(color: borderColor),
+      ),
+      focusedBorder: OutlineInputBorder(
+        borderRadius: BorderRadius.circular(12),
+        borderSide: const BorderSide(color: Color(0xFF3B82F6), width: 2),
+      ),
+    );
   }
 }
