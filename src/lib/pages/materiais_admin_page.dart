@@ -6,6 +6,11 @@ import '../widgets/admin/home_admin/admin_drawer.dart';
 import 'animated_network_background.dart';
 import '../widgets/admin/home_admin/update_status_bar.dart';
 import '../widgets/admin/materiais_admin/filter_bar.dart';
+import 'package:pdf/pdf.dart';
+import 'dart:typed_data';
+import 'package:pdf/widgets.dart' as pw;
+import 'package:printing/printing.dart';
+
 
 class MaterialItem {
   final int id;
@@ -319,7 +324,7 @@ class _MateriaisAdminPageState extends State<MateriaisAdminPage> {
                 mainAxisAlignment: MainAxisAlignment.end,
                 children: [
                   OutlinedButton.icon(
-                    onPressed: () {},
+                    onPressed: _exportarPDF,
                     icon: const Icon(Icons.upload_file, color: Colors.white70),
                     label: const Text(
                       'Exportar',
@@ -376,6 +381,53 @@ class _MateriaisAdminPageState extends State<MateriaisAdminPage> {
           ),
         ),
       ),
+    );
+  }
+  // botão exportar
+  Future<void> _exportarPDF() async {
+    final pdf = pw.Document();
+
+    pdf.addPage(
+      pw.MultiPage(
+        pageFormat: PdfPageFormat.a4,
+        build: (pw.Context context) {
+          return [
+            pw.Center(
+              child: pw.Text(
+                'Relatório de Materiais',
+                style: pw.TextStyle(fontSize: 20, fontWeight: pw.FontWeight.bold),
+              ),
+            ),
+            pw.SizedBox(height: 20),
+            pw.Table.fromTextArray(
+              headers: [
+                'Cód. SAP',
+                'Nome',
+                'Categoria',
+                'Unidade',
+                'Status',
+              ],
+              data: _materiais.map((m) {
+                return [
+                  m.codigoSap.toString(),
+                  m.descricao,
+                  m.categoria ?? '-',
+                  m.unidade ?? '-',
+                  m.status,
+                ];
+              }).toList(),
+              headerStyle: pw.TextStyle(fontWeight: pw.FontWeight.bold),
+              cellStyle: const pw.TextStyle(fontSize: 10),
+              border: pw.TableBorder.all(width: 0.5, color: PdfColors.grey),
+              headerDecoration: const pw.BoxDecoration(color: PdfColors.grey300),
+            ),
+          ];
+        },
+      ),
+    );
+
+    await Printing.layoutPdf(
+      onLayout: (PdfPageFormat format) async => pdf.save(),
     );
   }
 
