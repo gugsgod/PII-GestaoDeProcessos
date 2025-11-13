@@ -1,18 +1,16 @@
 import 'dart:convert';
-import 'dart:math';
 import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
 import 'package:provider/provider.dart';
-import 'package:src/pages/instrumentos_admin_page.dart';
 import '../widgets/admin/home_admin/admin_drawer.dart';
 import 'animated_network_background.dart';
 import '../widgets/admin/home_admin/update_status_bar.dart';
 import '../widgets/admin/materiais_admin/filter_bar.dart';
 import 'package:pdf/pdf.dart';
-import 'dart:typed_data';
 import 'package:pdf/widgets.dart' as pw;
 import 'package:printing/printing.dart';
 import '../auth/auth_store.dart';
+import '../widgets/admin/materiais_admin/table_actions_menu.dart';
 
 class MaterialItem {
   final int id;
@@ -65,7 +63,7 @@ class _MateriaisAdminPageState extends State<MateriaisAdminPage> {
   String? _errorMessage;
   List<MaterialItem> _materiais = [];
 
-    final List<String> _categories = [
+  final List<String> _categories = [
     'Todas as Categorias',
     'Cabos',
     'Relés',
@@ -206,11 +204,125 @@ class _MateriaisAdminPageState extends State<MateriaisAdminPage> {
       builder: (BuildContext context) {
         return _AddMaterialDialog(
           // Passa as categorias (sem "Todas") para o dropdown
-          categories: _categories.where((c) => c != 'Todas as Categorias').toList(),
+          categories: _categories
+              .where((c) => c != 'Todas as Categorias')
+              .toList(),
           onSave: (codSap, descricao, apelido, categoria, unidade) async {
             // Chama a nova função de API
-            return await _addNewMaterial(codSap, descricao, apelido, categoria, unidade);
+            return await _addNewMaterial(
+              codSap,
+              descricao,
+              apelido,
+              categoria,
+              unidade,
+            );
           },
+        );
+      },
+    );
+  }
+
+  void _removeMaterial(MaterialItem material) async {
+    // Mostra o dialog de confirmação
+    final bool? confirmed = await _showDeleteConfirmDialog(material);
+
+    // Se o usuário confirmou (true) e o widget ainda está "montado" (na tela)
+    if (confirmed == true && mounted) {
+      // Chama a função que executa a exclusão
+      await _performDelete(material);
+    }
+  }
+
+  /// 2. Executa a chamada de API DELETE
+  Future<void> _performDelete(MaterialItem material) async {
+    // Pega o token de autenticação
+    final auth = context.read<AuthStore>();
+    final token = auth.token;
+    if (token == null) {
+      _showSnackBar("Erro: Usuário não autenticado.", isError: true);
+      return;
+    }
+
+    // O backend espera um 'id' (int), mas o modelo 'Instrument' tem 'id' (String).
+    // Precisamos converter.
+    final int codSap = material.codigoSap;
+    if (codSap == null) {
+      _showSnackBar("Erro: ID inválido para exclusão.", isError: true);
+      return;
+    }
+
+    // Prepara a chamada de API
+    const String baseUrl = "http://localhost:8080";
+    final uri = Uri.parse("$baseUrl/materiais"); // Rota do backend
+
+    try {
+      final response = await http.delete(
+        uri,
+        headers: {
+          "Content-Type": "application/json",
+          "Accept": "application/json",
+          "Authorization": "Bearer $token",
+        },
+        // O backend (index.dart) espera o ID no corpo da requisição
+        body: json.encode({'cod_sap': codSap}),
+      );
+
+      // 204 (No Content) é a resposta padrão de sucesso para DELETE
+      if (response.statusCode == 204 || response.statusCode == 200) {
+        _showSnackBar(
+          "Instrumento '${material.descricao}' removido com sucesso!",
+          isError: false,
+        );
+        _fetchMateriais(); // Atualiza a lista de instrumentos
+      } else {
+        // Trata erros (como 404 - Não encontrado, 500 - Erro de servidor)
+        final errorBody = json.decode(utf8.decode(response.bodyBytes));
+        throw Exception(errorBody["error"] ?? "Falha ao remover instrumento");
+      }
+    } catch (e) {
+      // Trata erros de conexão ou outros
+      _showSnackBar(
+        "Erro: ${e.toString().replaceAll("Exception: ", "")}",
+        isError: true,
+      );
+    }
+  }
+
+  Future<bool?> _showDeleteConfirmDialog(MaterialItem material) {
+    const Color primaryColor = Color(0xFF080023); // Cor do tema escuro
+
+    return showDialog<bool>(
+      context: context,
+      builder: (BuildContext context) {
+        return AlertDialog(
+          backgroundColor: primaryColor,
+          title: const Text(
+            'Confirmar Exclusão',
+            style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold),
+          ),
+          content: Text(
+            "Tem certeza que deseja remover o instrumento:\n\n'${material.descricao}' (Patrimônio: ${material.codigoSap})?\n\nEsta ação não pode ser desfeita.",
+            style: const TextStyle(color: Colors.white70),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () =>
+                  Navigator.of(context).pop(false), // Retorna 'false'
+              child: const Text(
+                'Cancelar',
+                style: TextStyle(color: Colors.white70),
+              ),
+            ),
+            ElevatedButton(
+              onPressed: () =>
+                  Navigator.of(context).pop(true), // Retorna 'true'
+              style: ElevatedButton.styleFrom(
+                backgroundColor: Colors.red.shade800, // Cor de perigo
+                foregroundColor: Colors.white,
+              ),
+              child: const Text('Excluir'),
+            ),
+          ],
         );
       },
     );
@@ -337,6 +449,7 @@ class _MateriaisAdminPageState extends State<MateriaisAdminPage> {
       ),
     );
   }
+
   // botão exportar
   Future<void> _exportarPDF() async {
     final pdf = pw.Document();
@@ -349,18 +462,15 @@ class _MateriaisAdminPageState extends State<MateriaisAdminPage> {
             pw.Center(
               child: pw.Text(
                 'Relatório de Materiais',
-                style: pw.TextStyle(fontSize: 20, fontWeight: pw.FontWeight.bold),
+                style: pw.TextStyle(
+                  fontSize: 20,
+                  fontWeight: pw.FontWeight.bold,
+                ),
               ),
             ),
             pw.SizedBox(height: 20),
             pw.Table.fromTextArray(
-              headers: [
-                'Cód. SAP',
-                'Nome',
-                'Categoria',
-                'Unidade',
-                'Status',
-              ],
+              headers: ['Cód. SAP', 'Nome', 'Categoria', 'Unidade', 'Status'],
               data: _materiais.map((m) {
                 return [
                   m.codigoSap.toString(),
@@ -373,7 +483,9 @@ class _MateriaisAdminPageState extends State<MateriaisAdminPage> {
               headerStyle: pw.TextStyle(fontWeight: pw.FontWeight.bold),
               cellStyle: const pw.TextStyle(fontSize: 10),
               border: pw.TableBorder.all(width: 0.5, color: PdfColors.grey),
-              headerDecoration: const pw.BoxDecoration(color: PdfColors.grey300),
+              headerDecoration: const pw.BoxDecoration(
+                color: PdfColors.grey300,
+              ),
             ),
           ];
         },
@@ -535,10 +647,14 @@ class _MateriaisAdminPageState extends State<MateriaisAdminPage> {
           SizedBox(
             width: 56,
             child: Center(
-              child: IconButton(
-                icon: const Icon(Icons.more_horiz, color: Colors.black54),
-                onPressed: () {},
-              ),
+              child: TableActionsMenu(
+                onEditPressed: () => {
+
+                },
+                onRemovePressed: () => {
+                  _removeMaterial(item)
+                },
+              )
             ),
           ),
         ],
@@ -585,7 +701,8 @@ class _AddMaterialDialog extends StatefulWidget {
     String? apelido,
     String? categoria,
     String? unidade,
-  ) onSave;
+  )
+  onSave;
   final List<String> categories; // Recebe a lista de categorias
 
   const _AddMaterialDialog({required this.onSave, required this.categories});
@@ -608,7 +725,9 @@ class _AddMaterialDialogState extends State<_AddMaterialDialog> {
   void initState() {
     super.initState();
     // Inicia com a primeira categoria da lista (ou null se vazia)
-    _selectedCategoria = widget.categories.isNotEmpty ? widget.categories.first : null;
+    _selectedCategoria = widget.categories.isNotEmpty
+        ? widget.categories.first
+        : null;
   }
 
   @override
@@ -624,7 +743,9 @@ class _AddMaterialDialogState extends State<_AddMaterialDialog> {
     if (!_formKey.currentState!.validate()) {
       return;
     }
-    setState(() { _isSaving = true; });
+    setState(() {
+      _isSaving = true;
+    });
 
     // O validador já garantiu que isso é um int
     final int codSap = int.parse(_codSapController.text.trim());
@@ -640,7 +761,9 @@ class _AddMaterialDialogState extends State<_AddMaterialDialog> {
     if (success && mounted) {
       Navigator.of(context).pop();
     } else {
-      setState(() { _isSaving = false; });
+      setState(() {
+        _isSaving = false;
+      });
     }
   }
 
@@ -665,7 +788,10 @@ class _AddMaterialDialogState extends State<_AddMaterialDialog> {
                 controller: _codSapController,
                 style: const TextStyle(color: Colors.white),
                 keyboardType: TextInputType.number,
-                decoration: _buildInputDecoration(label: 'Cód. SAP *', icon: Icons.qr_code),
+                decoration: _buildInputDecoration(
+                  label: 'Cód. SAP *',
+                  icon: Icons.qr_code,
+                ),
                 validator: (value) {
                   if (value == null || value.trim().isEmpty) {
                     return 'O Cód. SAP é obrigatório';
@@ -681,7 +807,10 @@ class _AddMaterialDialogState extends State<_AddMaterialDialog> {
               TextFormField(
                 controller: _descricaoController,
                 style: const TextStyle(color: Colors.white),
-                decoration: _buildInputDecoration(label: 'Descrição *', icon: Icons.description),
+                decoration: _buildInputDecoration(
+                  label: 'Descrição *',
+                  icon: Icons.description,
+                ),
                 validator: (value) {
                   if (value == null || value.trim().isEmpty) {
                     return 'A descrição é obrigatória';
@@ -694,7 +823,10 @@ class _AddMaterialDialogState extends State<_AddMaterialDialog> {
               TextFormField(
                 controller: _apelidoController,
                 style: const TextStyle(color: Colors.white),
-                decoration: _buildInputDecoration(label: 'Apelido', icon: Icons.label_outline),
+                decoration: _buildInputDecoration(
+                  label: 'Apelido',
+                  icon: Icons.label_outline,
+                ),
               ),
               const SizedBox(height: 16),
               // Categoria (Opcional - Dropdown)
@@ -704,7 +836,9 @@ class _AddMaterialDialogState extends State<_AddMaterialDialog> {
                 items: widget.categories,
                 onChanged: (String? newValue) {
                   if (newValue != null) {
-                    setState(() { _selectedCategoria = newValue; });
+                    setState(() {
+                      _selectedCategoria = newValue;
+                    });
                   }
                 },
               ),
@@ -713,7 +847,10 @@ class _AddMaterialDialogState extends State<_AddMaterialDialog> {
               TextFormField(
                 controller: _unidadeController,
                 style: const TextStyle(color: Colors.white),
-                decoration: _buildInputDecoration(label: 'Unidade (ex: PC, M, KG)', icon: Icons.straighten),
+                decoration: _buildInputDecoration(
+                  label: 'Unidade (ex: PC, M, KG)',
+                  icon: Icons.straighten,
+                ),
               ),
             ],
           ),
@@ -722,7 +859,10 @@ class _AddMaterialDialogState extends State<_AddMaterialDialog> {
       actions: [
         TextButton(
           onPressed: () => Navigator.of(context).pop(),
-          child: const Text('Cancelar', style: TextStyle(color: Colors.white70)),
+          child: const Text(
+            'Cancelar',
+            style: TextStyle(color: Colors.white70),
+          ),
         ),
         ElevatedButton(
           onPressed: _isSaving ? null : _save,
@@ -734,7 +874,10 @@ class _AddMaterialDialogState extends State<_AddMaterialDialog> {
               ? const SizedBox(
                   width: 20,
                   height: 20,
-                  child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
+                  child: CircularProgressIndicator(
+                    strokeWidth: 2,
+                    color: Colors.white,
+                  ),
                 )
               : const Text('Salvar'),
         ),
@@ -781,7 +924,10 @@ class _AddMaterialDialogState extends State<_AddMaterialDialog> {
   }
 
   // Helper para estilizar os campos de texto (copiado dos outros popups)
-  InputDecoration _buildInputDecoration({required String label, required IconData icon}) {
+  InputDecoration _buildInputDecoration({
+    required String label,
+    required IconData icon,
+  }) {
     const Color inputFillColor = Color.fromARGB(255, 30, 24, 53);
     const Color borderColor = Colors.white30;
     const Color hintColor = Colors.white60;

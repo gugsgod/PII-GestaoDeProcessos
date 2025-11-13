@@ -15,6 +15,8 @@ Future<Response> onRequest(RequestContext context) async {
       final guard = await requireAdmin(context);
       if (guard != null) return guard;
       return _create(context);
+    case HttpMethod.delete:
+      return _delete(context);
     default:
       return Response(statusCode: 405);
   }
@@ -159,5 +161,49 @@ Future<Response> _create(RequestContext context) async {
   } catch (e, st) {
     print('POST /materiais error: $e\n$st');
     return jsonServer({'error': 'internal'});
+  }
+}
+
+Future<Response> _delete(RequestContext context) async {
+  final guard = await requireAdmin(context);
+  if (guard != null) return guard;
+
+  final connection = context.read<Connection>();
+
+  Map<String, dynamic> body;
+  try {
+    body = await context.request.json() as Map<String, dynamic>;
+  } catch (e) {
+    return Response(statusCode: 400, body: 'Corpo JSON inválido.');
+  }
+
+  final cod_sap = body['cod_sap'] as int?;
+
+  if (cod_sap == null) {
+    return Response(
+      statusCode: 400, body: 'O campo sap_cod (str) é obrigatório no corpo');
+  }
+
+  try {
+    final result = await connection.execute(
+      Sql.named("DELETE FROM materiais WHERE cod_sap = @cod_sap"),
+      parameters: {'cod_sap': cod_sap},
+    );
+
+    if (result.affectedRows == 0) {
+      return Response(
+          statusCode: 404,
+          body: 'Material com sap_cod $cod_sap não encontrado.');
+    }
+
+    return Response(statusCode: 204);
+  } on PgException catch (e) {
+    print('Erro no banco de dados ao deletar: $e');
+    return Response(
+        statusCode: 500, body: 'Erro no banco de dados: ${e.message}');
+  } catch (e, st) {
+    print('Erro inesperado ao deletar: $e\n$st');
+    return Response(
+        statusCode: 500, body: 'Erro interno ao deletar instrumento.');
   }
 }
