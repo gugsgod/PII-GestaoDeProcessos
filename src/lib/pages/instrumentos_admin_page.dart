@@ -130,7 +130,9 @@ class _InstrumentosAdminPageState extends State<InstrumentosAdminPage> {
 
     // 4. AGORA tenta a API (depois que o loading já está na tela)
     try {
-      final data = await fetchInstrumentos(token); // (A api já tem timeout e no-cache)
+      final data = await fetchInstrumentos(
+        token,
+      ); // (A api já tem timeout e no-cache)
       if (!mounted) return;
       setState(() {
         _instruments = data.map((e) => Instrument.fromJson(e)).toList();
@@ -141,8 +143,10 @@ class _InstrumentosAdminPageState extends State<InstrumentosAdminPage> {
       if (!mounted) return;
       setState(() {
         _isLoading = false;
-        _errorMessage =
-            e.toString().replaceAll("Exception: ", ""); // Mostra o erro da API
+        _errorMessage = e.toString().replaceAll(
+          "Exception: ",
+          "",
+        ); // Mostra o erro da API
       });
     }
   }
@@ -259,14 +263,109 @@ class _InstrumentosAdminPageState extends State<InstrumentosAdminPage> {
   }
 
   /// Placeholder para a lógica de remoção
-  void _removeInstrumento(Instrument instrumento) {
-    // TODO: Implementar lógica de remoção
-    // 1. Mostrar um dialog de confirmação (AlertDialog)
-    // 2. Se confirmar, chamar a API de DELETE (DELETE /usuarios/{id})
-    // 3. Se sucesso, chamar _fetchPessoas() para atualizar a lista
-    _showSnackBar(
-      "Ação 'Remover' para ${instrumento.descricao} (ID: ${instrumento.patrimonio})",
-      isError: true,
+  void _removeInstrumento(Instrument instrumento) async {
+    // Mostra o dialog de confirmação
+    final bool? confirmed = await _showDeleteConfirmDialog(instrumento);
+
+    // Se o usuário confirmou (true) e o widget ainda está "montado" (na tela)
+    if (confirmed == true && mounted) {
+      // Chama a função que executa a exclusão
+      await _performDelete(instrumento);
+    }
+  }
+
+  /// 2. Executa a chamada de API DELETE
+  Future<void> _performDelete(Instrument instrumento) async {
+    // Pega o token de autenticação
+    final auth = context.read<AuthStore>();
+    final token = auth.token;
+    if (token == null) {
+      _showSnackBar("Erro: Usuário não autenticado.", isError: true);
+      return;
+    }
+
+    // O backend espera um 'id' (int), mas o modelo 'Instrument' tem 'id' (String).
+    // Precisamos converter.
+    final String? patrimonio = instrumento.patrimonio;
+    if (patrimonio == null) {
+      _showSnackBar("Erro: ID inválido para exclusão.", isError: true);
+      return;
+    }
+
+    // Prepara a chamada de API
+    const String baseUrl = "http://localhost:8080";
+    final uri = Uri.parse("$baseUrl/instrumentos"); // Rota do backend
+
+    try {
+      final response = await http.delete(
+        uri,
+        headers: {
+          "Content-Type": "application/json",
+          "Accept": "application/json",
+          "Authorization": "Bearer $token",
+        },
+        // O backend (index.dart) espera o ID no corpo da requisição
+        body: json.encode({'patrimonio': patrimonio}),
+      );
+
+      // 204 (No Content) é a resposta padrão de sucesso para DELETE
+      if (response.statusCode == 204 || response.statusCode == 200) {
+        _showSnackBar(
+          "Instrumento '${instrumento.descricao}' removido com sucesso!",
+          isError: false,
+        );
+        _load(); // Atualiza a lista de instrumentos
+      } else {
+        // Trata erros (como 404 - Não encontrado, 500 - Erro de servidor)
+        final errorBody = json.decode(utf8.decode(response.bodyBytes));
+        throw Exception(errorBody["error"] ?? "Falha ao remover instrumento");
+      }
+    } catch (e) {
+      // Trata erros de conexão ou outros
+      _showSnackBar(
+        "Erro: ${e.toString().replaceAll("Exception: ", "")}",
+        isError: true,
+      );
+    }
+  }
+
+  Future<bool?> _showDeleteConfirmDialog(Instrument instrumento) {
+    const Color primaryColor = Color(0xFF080023); // Cor do tema escuro
+
+    return showDialog<bool>(
+      context: context,
+      builder: (BuildContext context) {
+        return AlertDialog(
+          backgroundColor: primaryColor,
+          title: const Text(
+            'Confirmar Exclusão',
+            style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold),
+          ),
+          content: Text(
+            "Tem certeza que deseja remover o instrumento:\n\n'${instrumento.descricao}' (Patrimônio: ${instrumento.patrimonio})?\n\nEsta ação não pode ser desfeita.",
+            style: const TextStyle(color: Colors.white70),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () =>
+                  Navigator.of(context).pop(false), // Retorna 'false'
+              child: const Text(
+                'Cancelar',
+                style: TextStyle(color: Colors.white70),
+              ),
+            ),
+            ElevatedButton(
+              onPressed: () =>
+                  Navigator.of(context).pop(true), // Retorna 'true'
+              style: ElevatedButton.styleFrom(
+                backgroundColor: Colors.red.shade800, // Cor de perigo
+                foregroundColor: Colors.white,
+              ),
+              child: const Text('Excluir'),
+            ),
+          ],
+        );
+      },
     );
   }
 

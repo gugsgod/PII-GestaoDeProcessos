@@ -4,9 +4,6 @@ import 'package:postgres/postgres.dart';
 import 'package:backend/api_utils.dart';
 
 Future<Response> onRequest(RequestContext context) async {
-  
-  
-  
   switch (context.request.method) {
     case HttpMethod.get:
       return _get(context);
@@ -80,7 +77,7 @@ Future<Response> _get(RequestContext context) async {
 }
 
 Future<Response> _post(RequestContext context) async {
-   final connection = context.read<Connection>();
+  final connection = context.read<Connection>();
   final body = await context.request.json() as Map<String, dynamic>;
 
   final patrimonio = body['patrimonio'] as String?;
@@ -147,5 +144,45 @@ Future<Response> _patch(RequestContext context) async {
 }
 
 Future<Response> _delete(RequestContext context) async {
-  return Response(statusCode: 501, body: 'Not Implemented');
+  
+
+  final guard = await requireAdmin(context);
+  if (guard != null) return guard;
+
+  final connection = context.read<Connection>();
+  
+  Map<String, dynamic> body;
+  try {
+    body = await context.request.json() as Map<String, dynamic>;
+  } catch (e) {
+    return Response(statusCode: 400, body: 'Corpo JSON inválido.');
+  }
+
+  final patrimonio = body['patrimonio'] as String?;
+
+  if (patrimonio == null) {
+    return Response(statusCode: 400, body: 'O campo "patrimonio" (str) é obrigatório no corpo.');
+  }
+
+  try {
+    final result = await connection.execute(
+      Sql.named('DELETE FROM instrumentos WHERE patrimonio = @patrimonio'),
+      parameters: {'patrimonio': patrimonio},
+    );
+
+    if (result.affectedRows == 0) {
+      return Response(statusCode: 404, body: 'Instrumento com patrimonio $patrimonio não encontrado.');
+    }
+
+    return Response(statusCode: 204);
+
+  } on PgException catch (e) {
+    
+    print('Erro no banco de dados ao deletar: $e');
+    return Response(statusCode: 500, body: 'Erro no banco de dados: ${e.message}');
+  } catch (e, st) {
+
+    print('Erro inesperado ao deletar: $e\n$st');
+    return Response(statusCode: 500, body: 'Erro interno ao deletar instrumento.');
+  }
 }
