@@ -3,6 +3,7 @@ import 'package:provider/provider.dart';
 import 'package:src/auth/auth_store.dart';
 import 'package:src/widgets/admin/home_admin/dashboard_card.dart';
 import 'package:src/widgets/tecnico/Atividades.dart';
+import 'package:src/widgets/tecnico/home_tecnico/AlertasTecnico.dart';
 import '../admin/animated_network_background.dart';
 import '../../widgets/tecnico/home_tecnico/tecnico_drawer.dart';
 import '../../widgets/admin/home_admin/update_status_bar.dart';
@@ -149,6 +150,11 @@ class _HomeTecnicoState extends State<HomeTecnico> {
                   : _buildMobileList(isDesktop),
               const SizedBox(height: 40),
               _buildAtividadesSection(isDesktop),
+              const SizedBox(height: 24),
+              AlertasTecnico(
+                isDesktop: isDesktop,
+                scrollController: ScrollController(),
+              )
             ],
           ),
         ),
@@ -190,12 +196,12 @@ class _HomeTecnicoState extends State<HomeTecnico> {
       );
     }
 
-    //if (_atividadesRecentes.isEmpty) {
+    // if (_atividadesRecentes.isEmpty) {
     //  return const Text(
     //      'Nenhuma atividade recente encontrada.',
     //      style: TextStyle(color: Colors.white70, fontSize: 16),
     //  );
-    //}
+    // }
 
     return AtividadesRecentes(
       scrollController: _scrollController,
