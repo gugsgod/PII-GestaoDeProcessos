@@ -492,8 +492,9 @@ class _MateriaisAdminPageState extends State<MateriaisAdminPage> {
       ),
     );
 
-    await Printing.layoutPdf(
-      onLayout: (PdfPageFormat format) async => pdf.save(),
+    await Printing.sharePdf(
+      bytes: await pdf.save(),
+      filename: 'materiais.pdf',
     );
   }
 
