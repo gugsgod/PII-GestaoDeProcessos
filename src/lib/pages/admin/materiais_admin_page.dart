@@ -2,15 +2,15 @@ import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
 import 'package:provider/provider.dart';
-import '../widgets/admin/home_admin/admin_drawer.dart';
+import '../../widgets/admin/home_admin/admin_drawer.dart';
 import 'animated_network_background.dart';
-import '../widgets/admin/home_admin/update_status_bar.dart';
-import '../widgets/admin/materiais_admin/filter_bar.dart';
+import '../../widgets/admin/home_admin/update_status_bar.dart';
+import '../../widgets/admin/materiais_admin/filter_bar.dart';
 import 'package:pdf/pdf.dart';
 import 'package:pdf/widgets.dart' as pw;
 import 'package:printing/printing.dart';
-import '../auth/auth_store.dart';
-import '../widgets/admin/materiais_admin/table_actions_menu.dart';
+import '../../auth/auth_store.dart';
+import '../../widgets/admin/materiais_admin/table_actions_menu.dart';
 
 class MaterialItem {
   final int id;
@@ -492,10 +492,7 @@ class _MateriaisAdminPageState extends State<MateriaisAdminPage> {
       ),
     );
 
-    await Printing.sharePdf(
-      bytes: await pdf.save(),
-      filename: 'materiais.pdf',
-    );
+    await Printing.sharePdf(bytes: await pdf.save(), filename: 'materiais.pdf');
   }
 
   void _showSnackBar(String message, {bool isError = false}) {
@@ -649,13 +646,9 @@ class _MateriaisAdminPageState extends State<MateriaisAdminPage> {
             width: 56,
             child: Center(
               child: TableActionsMenu(
-                onEditPressed: () => {
-
-                },
-                onRemovePressed: () => {
-                  _removeMaterial(item)
-                },
-              )
+                onEditPressed: () => {},
+                onRemovePressed: () => {_removeMaterial(item)},
+              ),
             ),
           ),
         ],

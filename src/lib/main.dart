@@ -1,13 +1,16 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:src/auth/auth_store.dart';
-import 'pages/home_admin.dart';
-import 'pages/login_page.dart';
-import 'pages/materiais_admin_page.dart';
-import 'pages/instrumentos_admin_page.dart';
-import 'pages/historico_admin_page.dart';
-import 'pages/movimentacoes.dart';
-import 'pages/pessoas_page.dart';
+import 'pages/admin/home_admin.dart';
+import 'pages/admin/login_page.dart';
+import 'pages/admin/materiais_admin_page.dart';
+import 'pages/admin/instrumentos_admin_page.dart';
+import 'pages/admin/historico_admin_page.dart';
+import 'pages/admin/movimentacoes.dart';
+import 'pages/admin/pessoas_page.dart';
+
+import 'pages/tecnico/HomeTecnico.dart';
+
 Future<void> main() async {
 
   WidgetsFlutterBinding.ensureInitialized();
@@ -38,7 +41,7 @@ class MyApp extends StatelessWidget {
       debugShowCheckedModeBanner: false,
 
 
-      home: auth.isAuthenticated ? const HomeAdminPage() : const LoginPage(),
+      home: auth.isAuthenticated ? auth.isAdmin ? const HomeAdminPage() : const HomeTecnico() : const LoginPage(),
 
       // Demais rotas nomeadas
       routes: {
@@ -49,6 +52,7 @@ class MyApp extends StatelessWidget {
         '/historico': (context) => const HistoricoAdminPage(),
         '/movimentacoes': (context) => const MovimentacoesRecentesPage(),
         '/pessoas': (context) => const PessoasPage(),
+        '/tecnico': (context) => const HomeTecnico(),
       },
     );
   }

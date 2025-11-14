@@ -9,7 +9,7 @@ import 'package:provider/provider.dart';
 import 'package:src/auth/auth_store.dart';
 import 'animated_network_background.dart';
 import 'package:src/widgets/admin/home_admin/update_status_bar.dart';
-import '../widgets/admin/home_admin/admin_drawer.dart';
+import '../../widgets/admin/home_admin/admin_drawer.dart';
 
 const String apiBaseUrl = 'http://localhost:8080';
 

@@ -4,6 +4,9 @@ import 'package:jwt_decoder/jwt_decoder.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 class AuthStore extends ChangeNotifier {
+  static const String roleAdmin = 'admin';
+  static const String roleTecnico = 'tecnico';
+
   String? _token;
   Map<String, dynamic>? _claims;
   bool _initialized = false;
@@ -17,6 +20,18 @@ class AuthStore extends ChangeNotifier {
   String? get email => _claims?['email'] as String?;
   bool get isAuthenticated =>
       _token != null && _claims != null && !JwtDecoder.isExpired(_token!);
+
+  // Convenience role checks
+  bool get isAdmin => role == roleAdmin;
+  bool get isTecnico => role == roleTecnico;
+  bool hasRole(String r) => role == r;
+
+  // Optional helper to enforce role (lança se não tiver a role)
+  void requireRole(String r) {
+    if (!hasRole(r)) {
+      throw StateError('Ação não permitida: role requerida "$r"');
+    }
+  }
 
   Future<void> init() async {
     await load();

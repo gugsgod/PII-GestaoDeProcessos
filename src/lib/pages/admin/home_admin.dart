@@ -2,7 +2,6 @@
 import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
-import 'dart:math';
 
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
@@ -10,11 +9,11 @@ import 'package:provider/provider.dart';
 import 'package:http/http.dart' as http;
 
 import 'package:src/auth/auth_store.dart';
-import '../widgets/admin/home_admin/admin_drawer.dart';
-import '../widgets/admin/home_admin/dashboard_card.dart';
-import '../widgets/admin/home_admin/recent_movements.dart';
-import '../widgets/admin/home_admin/update_status_bar.dart';
-import '../widgets/admin/home_admin/quick_actions.dart';
+import '../../widgets/admin/home_admin/admin_drawer.dart';
+import '../../widgets/admin/home_admin/dashboard_card.dart';
+import '../../widgets/admin/home_admin/recent_movements.dart';
+import '../../widgets/admin/home_admin/update_status_bar.dart';
+import '../../widgets/admin/home_admin/quick_actions.dart';
 import 'animated_network_background.dart';
 
 const String apiBaseUrl = 'http://localhost:8080';
