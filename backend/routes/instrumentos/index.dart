@@ -14,13 +14,13 @@ Future<Response> onRequest(RequestContext context) async {
     case HttpMethod.delete:
       return _delete(context);
     default:
-      return Response(statusCode: 405, body: 'Method Not Allowed');
+      return jsonServer(context);
   }
 }
 
 Future<Response> _get(RequestContext context) async {
-  final guard = await requireAdmin(context);
-  if (guard != null) return guard;
+  // final guard = await requireAdmin(context);
+  // if (guard != null) return guard;
   
   final connection = context.read<Connection>();
 
@@ -29,7 +29,6 @@ Future<Response> _get(RequestContext context) async {
       'SELECT id, patrimonio, descricao, categoria, status, local_atual_id, responsavel_atual_id, proxima_calibracao_em, ativo, created_at, updated_at FROM instrumentos;'
     );
 
-    // ------ Apagar depois -------
     dynamic _convertValue(dynamic value) {
       if (value is UndecodedBytes) {
         try {

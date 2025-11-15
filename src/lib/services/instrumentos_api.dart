@@ -16,8 +16,6 @@ Future<List<Map<String, dynamic>>> fetchInstrumentos(String token) async {
         'Content-Type': 'application/json',
         'Authorization': 'Bearer $token',
         'Cache-Control': 'no-cache, no-store, must-revalidate',
-        'Pragma': 'no-cache',
-        'Expires': '0',
       },
       // Adiciona um timeout de 5 segundos
     ).timeout(const Duration(seconds: 5));
@@ -39,7 +37,6 @@ Future<List<Map<String, dynamic>>> fetchInstrumentos(String token) async {
 
     throw Exception('Erro ${res.statusCode}: $body');
 
-  // BLOCO CATCH ADICIONADO
   } on TimeoutException {
     // Servidor demorou demais
     throw Exception('Servidor não respondeu a tempo (Timeout).');
