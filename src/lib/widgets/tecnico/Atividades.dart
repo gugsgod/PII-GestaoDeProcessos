@@ -1,4 +1,9 @@
+import 'dart:async';
+import 'dart:convert';
+import 'dart:io';
+
 import 'package:flutter/material.dart';
+import 'package:http/http.dart' as http;
 import 'package:intl/intl.dart';
 import 'package:provider/provider.dart';
 import 'package:src/auth/auth_store.dart';
@@ -21,16 +26,22 @@ class _Atividade {
   });
 
   bool get isAtrasado => dataDevolucao.isBefore(DateTime.now());
-  bool get isInstrumento => idMaterial.startsWith('INST');
+  bool get isInstrumento => int.tryParse(idMaterial) == null;
 
   factory _Atividade.fromJson(Map<String, dynamic> json) {
+    // Helper para parsear datas de forma segura
+    DateTime _tryParseDate(String? dateString) {
+      if (dateString == null) return DateTime.now(); // Fallback
+      return DateTime.tryParse(dateString) ?? DateTime.now(); // Fallback
+    }
+
     return _Atividade(
-      nomeMaterial: json['nomeMaterial'],
-      idMaterial: json['idMaterial'],
-      status: json['status'],
-      localizacao: json['localizacao'],
-      dataRetirada: DateTime.parse(json['dataRetirada']),
-      dataDevolucao: DateTime.parse(json['dataDevolucao']),
+      nomeMaterial: json['nomeMaterial']?.toString() ?? 'Item desconhecido',
+      idMaterial: json['idMaterial']?.toString() ?? 'N/A',
+      status: json['status'] == true, // O SQL sempre manda 'true'
+      localizacao: json['localizacao']?.toString() ?? 'Base 01',
+      dataRetirada: _tryParseDate(json['dataRetirada']),
+      dataDevolucao: _tryParseDate(json['dataDevolucao']),
     );
   }
 }
@@ -81,7 +92,7 @@ class _AtividadesRecentesState extends State<AtividadesRecentes> {
   }
 
   Future<List<_Atividade>> _fetchRecent(String token) async {
-    // TODO: Implementar chamada à API para buscar atividades recentes
+    // TODO: Apagar depois que o endpoint estiver pronto.
     return [];
   }
 
@@ -137,7 +148,6 @@ class _AtividadesRecentesState extends State<AtividadesRecentes> {
               final atividades = snapshot.data ?? [];
 
               if (atividades.isEmpty) {
-                // TODO: UI quando nenhuma atividade for encontrada
                 return Center(
                   child: Column(
                     mainAxisAlignment: MainAxisAlignment.center,
@@ -175,8 +185,6 @@ class _AtividadesRecentesState extends State<AtividadesRecentes> {
                   ),
                 );
               }
-
-              // TODO: Construir a lista de atividades recentes
               return ListView.separated(
                 controller: widget.scrollController,
                 padding: const EdgeInsets.all(12),

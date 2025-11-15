@@ -1,6 +1,10 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:src/auth/auth_store.dart';
+import 'package:http/http.dart' as http;
+import 'dart:async';
+import 'dart:convert';
+import 'dart:io';
 
 // --- Modelo de Dados (Mock) ---
 class _Alerta {
@@ -62,21 +66,60 @@ class _AlertasTecnicoState extends State<AlertasTecnico> {
 
   // (Mockado para fins de UI, de acordo com a imagem)
   Future<List<_Alerta>> _fetchAlertas(String token) async {
-    // Simula a chamada de API
-    await Future.delayed(const Duration(milliseconds: 1200));
+    final headers = {
+      'Content-Type': 'application/json',
+      'Authorization': 'Bearer $token',
+      'Cache-Control': 'no-cache, no-store, must-revalidate',
+    };
 
-    // Para testar a UI de "lista vazia", retorne []
-    return [];
+    try {
+      final calibracaoResponseFuture = http
+          .get(Uri.parse('$_apiHost/instrumentos'), headers: headers)
+          .timeout(const Duration(seconds: 5));
 
-    // Mock
-    // return List.generate(
-    //   5,
-    //   (index) => _Alerta(
-    //     titulo: 'Devolução Atrasada',
-    //     nomeMaterial: 'Cabo Ethernet Cat6',
-    //     diasAtraso: 345,
-    //   ),
-    // );
+      final devolucoesResponseFuture = Future.value(<_Alerta>[]);
+      // TODO: Substituir quando tiver o endpoint
+
+      final response = await Future.wait([
+        calibracaoResponseFuture,
+        devolucoesResponseFuture
+      ]);
+
+      final List<_Alerta> alertasCalibracao = [];
+      if (response[0] is http.Response) {
+        final res = response[0] as http.Response;
+        if (res.statusCode == 200) {
+          final List<dynamic> data = json.decode(utf8.decode(res.bodyBytes));
+          final agora = DateTime.now();
+
+          for (var json in data) {
+            final dataVencimentoStr = json['proxima_calibracao_em'];
+            if (dataVencimentoStr != null) {
+              final dataVencimento = DateTime.tryParse(dataVencimentoStr);
+              if (dataVencimento != null && dataVencimento.isBefore(agora)) {
+                alertasCalibracao.add(_Alerta(titulo: 'Calibração Vencida', nomeMaterial: json['descricao'] ?? 'Instrumentos S/ Nome', diasAtraso: agora.difference(dataVencimento).inDays,));
+              }
+            }
+          }
+        } else {
+          print('Falha ao buscar alertas de calibração: ${res.statusCode}');
+        }
+      }
+
+      final List<_Alerta> alertasDevolucao = response[1] as List<_Alerta>;
+
+      return [...alertasDevolucao, ...alertasCalibracao];
+
+    } on TimeoutException {
+      throw Exception('Servidor não respondeu a tempo (Timeout).');
+    } on SocketException {
+      throw Exception('Falha ao se conectar. Verifique a rede ou o servidor.');
+    } on http.ClientException catch (e) {
+      throw Exception('Erro de conexão (CORS ou DNS): ${e.message}');
+    } catch (e) {
+      throw Exception('Erro desconhecido: ${e.toString()}');
+    }
+
   }
 
   @override
@@ -197,12 +240,12 @@ class _AlertaCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     // Cores exatas da imagem (fundo e borda)
-    const Color cardColor = Color(0xFFFEE2E2); // Fundo rosa/salmão claro
-    const Color borderColor = Color(0xFFFCA5A5); // Borda vermelha clara
-    const Color iconColor = Color(0xFFEF4444); // Ícone vermelho
-    const Color iconBgColor = Color(0xFFFEE2E2); // Fundo do ícone (igual ao card)
-    const Color titleColor = Color(0xFF7F1D1D); // Título vermelho escuro
-    const Color subtitleColor = Color(0xFF991B1B); // Subtítulo vermelho escuro
+    const Color cardColor = Color(0xFFFEE2E2);
+    const Color borderColor = Color(0xFFFCA5A5); 
+    const Color iconColor = Color(0xFFEF4444); 
+    const Color iconBgColor = Color(0xFFFEE2E2); 
+    const Color titleColor = Color(0xFF7F1D1D); 
+    const Color subtitleColor = Color(0xFF991B1B); 
 
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),

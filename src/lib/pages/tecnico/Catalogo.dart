@@ -253,6 +253,57 @@ class _CatalogoState extends State<Catalogo> {
     });
   }
 
+  void _abrirModalRetirada(BuildContext context, dynamic item) {
+  final auth = context.read<AuthStore>();
+  final token = auth.token;
+
+  if (token == null || !auth.isAuthenticated) {
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(content: Text('Erro de autenticação. Faça login novamente.')),
+    );
+    return;
+  }
+  
+  // Decide qual modal mostrar
+  if (item is InstrumentoCatalogo) {
+    showDialog(
+      context: context,
+      builder: (_) => _ModalRetirarInstrumento(
+        item: item,
+        token: token,
+        onSuccess: _onRetiradaSuccess, // Callback para atualizar a UI
+      ),
+    );
+  } else if (item is MaterialCatalogo) {
+    showDialog(
+      context: context,
+      builder: (_) => _ModalRetirarMaterial(
+        item: item,
+        token: token,
+        onSuccess: _onRetiradaSuccess, // Callback para atualizar a UI
+      ),
+    );
+  }
+}
+
+// Callback para recarregar os dados após uma retirada
+void _onRetiradaSuccess() {
+  // Mostra feedback
+  ScaffoldMessenger.of(context).showSnackBar(
+    const SnackBar(
+      content: Text('Item retirado com sucesso!'),
+      backgroundColor: Colors.green,
+    ),
+  );
+  
+  // Recarrega o catálogo para refletir o novo status (item indisponível)
+  setState(() {
+    // Reinicia o future para forçar a chamada de API
+    _isFutureInitialized = false; 
+  });
+  // Chama o didChangeDependencies "manualmente"
+  didChangeDependencies();
+}
 
   // ================== WIDGETS DE CONSTRUÇÃO (UI) ==================
 
@@ -518,7 +569,7 @@ class _CatalogoState extends State<Catalogo> {
     return Container(
       padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
-        color: Colors.white.withOpacity(0.1),
+        color: const Color.fromARGB(209, 255, 255, 255),
         borderRadius: BorderRadius.circular(12),
       ),
       child: Column(
@@ -536,8 +587,8 @@ class _CatalogoState extends State<Catalogo> {
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Text(item.nome, style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 16)),
-                    Text(item.patrimonio, style: const TextStyle(color: Colors.white70, fontSize: 14)),
+                    Text(item.nome, style: const TextStyle(color: Colors.black, fontWeight: FontWeight.bold, fontSize: 16)),
+                    Text(item.patrimonio, style: const TextStyle(color: Colors.black, fontSize: 14)),
                   ],
                 ),
               ),
@@ -548,7 +599,7 @@ class _CatalogoState extends State<Catalogo> {
                   _TagChip(
                     label: "Disponível",
                     backgroundColor: Colors.green.withOpacity(0.2),
-                    textColor: Colors.green.shade300,
+                    textColor: Colors.green,
                   ),
                   if (vencida) ...[
                     const SizedBox(height: 4),
@@ -566,24 +617,27 @@ class _CatalogoState extends State<Catalogo> {
           // Linha 2: Local
           _InfoLinha(
             icon: Icons.location_on_outlined,
+            iconColor: Colors.black,
             title: "Local:",
             value: item.local,
-            valueColor: Colors.white,
+            valueColor: Colors.black,
           ),
           // Linha 3: Calibração
           _InfoLinha(
             icon: Icons.calendar_today_outlined,
             title: "Calibração:",
             value: DateFormat('dd/MM/yyyy').format(item.proximaCalibracao),
-            iconColor: vencida ? Colors.red.shade300 : Colors.white70,
-            valueColor: vencida ? Colors.red.shade300 : Colors.white70,
+            iconColor: vencida ? Colors.red.shade300 : Colors.black,
+            valueColor: vencida ? Colors.red.shade300 : Colors.black,
           ),
           const SizedBox(height: 16),
           // Linha 4: Botão
           SizedBox(
             width: double.infinity,
             child: ElevatedButton.icon(
-              onPressed: () { /* TODO: Lógica de Retirada */ },
+              onPressed: () {
+                _abrirModalRetirada(context, item);
+              },
               icon: const Icon(Icons.upload, size: 16, color: Colors.white),
               label: const Text("Retirar Instrumento"),
               style: ElevatedButton.styleFrom(
@@ -602,7 +656,7 @@ class _CatalogoState extends State<Catalogo> {
     return Container(
       padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
-        color: Colors.white.withOpacity(0.1),
+        color: const Color.fromARGB(209, 255, 255, 255),
         borderRadius: BorderRadius.circular(12),
       ),
       child: Column(
@@ -620,8 +674,8 @@ class _CatalogoState extends State<Catalogo> {
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Text(item.nome, style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 16)),
-                    Text("MAT${item.matId}", style: const TextStyle(color: Colors.white70, fontSize: 14)),
+                    Text(item.nome, style: const TextStyle(color: Colors.black, fontWeight: FontWeight.bold, fontSize: 16)),
+                    Text("MAT${item.matId}", style: const TextStyle(color: Colors.black, fontSize: 14)),
                   ],
                 ),
               ),
@@ -632,13 +686,13 @@ class _CatalogoState extends State<Catalogo> {
                   _TagChip( // Tag de Categoria (azul)
                     label: item.categoria,
                     backgroundColor: const Color(0xFF3B82F6).withOpacity(0.3),
-                    textColor: const Color(0xFF93C5FD),
+                    textColor: Colors.blue,
                   ),
                   const SizedBox(height: 4),
                    _TagChip( // Tag de Disponível (verde)
                     label: "Disponível",
                     backgroundColor: Colors.green.withOpacity(0.2),
-                    textColor: Colors.green.shade300,
+                    textColor: Colors.green,
                   ),
                 ],
               ),
@@ -656,7 +710,9 @@ class _CatalogoState extends State<Catalogo> {
           SizedBox(
             width: double.infinity,
             child: ElevatedButton.icon(
-              onPressed: () { /* TODO: Lógica de Retirada */ },
+              onPressed: () {
+                _abrirModalRetirada(context, item);
+              },
               icon: const Icon(Icons.upload, size: 16, color: Colors.white),
               label: const Text("Retirar Material"),
               style: ElevatedButton.styleFrom(
@@ -725,7 +781,7 @@ class _InfoLinha extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    const Color defaultColor = Colors.white70; // Cor padrão
+    const Color defaultColor = Colors.black; // Cor padrão
     
     return Row(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -747,6 +803,420 @@ class _InfoLinha extends StatelessWidget {
           ),
         ),
       ],
+    );
+  }
+}
+
+class _ModalRetirarInstrumento extends StatefulWidget {
+  final InstrumentoCatalogo item;
+  final String token;
+  final VoidCallback onSuccess;
+
+  const _ModalRetirarInstrumento({
+    required this.item,
+    required this.token,
+    required this.onSuccess,
+  });
+
+  @override
+  State<_ModalRetirarInstrumento> createState() =>
+      _ModalRetirarInstrumentoState();
+}
+
+class _ModalRetirarInstrumentoState extends State<_ModalRetirarInstrumento> {
+  DateTime _previsaoDevolucao = DateTime.now().add(const Duration(days: 1));
+  bool _isLoading = false;
+  String? _error;
+
+  // Função que faz o POST
+  Future<void> _submit() async {
+    setState(() {
+      _isLoading = true;
+      _error = null;
+    });
+
+    try {
+      final body = json.encode({
+        // O backend espera o ID do instrumento
+        'instrumento_id': widget.item.id,
+        // O backend espera a data no formato ISO 8601
+        'previsao_devolucao': _previsaoDevolucao.toIso8601String(),
+      });
+
+      final response = await http.post(
+        Uri.parse('http://localhost:8080/movimentacoes/saida'),
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': 'Bearer ${widget.token}',
+        },
+        body: body,
+      );
+
+      if (!mounted) return;
+
+      if (response.statusCode == 200) {
+        Navigator.of(context).pop(); // Fecha o modal
+        widget.onSuccess(); // Chama o callback
+      } else {
+        final Map<String, dynamic> errorData = json.decode(response.body);
+        setState(() {
+          _error = errorData['error'] ?? 'Falha ao retirar o item.';
+          _isLoading = false;
+        });
+      }
+    } catch (e) {
+      if (!mounted) return;
+      setState(() {
+        _error = 'Erro de conexão: ${e.toString()}';
+        _isLoading = false;
+      });
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    // Simples "Date Picker" (pode ser melhorado)
+    // Para um app real, use um pacote como `showDatePicker`
+    final TextEditingController dateController = TextEditingController(
+      text: DateFormat('dd/MM/yyyy HH:mm').format(_previsaoDevolucao),
+    );
+
+    return AlertDialog(
+      title: Text('Retirar ${widget.item.nome}'),
+      content: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Text('Patrimônio: ${widget.item.patrimonio}'),
+          const SizedBox(height: 16),
+          TextField(
+            controller: dateController,
+            readOnly: true,
+            decoration: const InputDecoration(
+              labelText: 'Previsão de Devolução',
+              border: OutlineInputBorder(),
+              suffixIcon: Icon(Icons.calendar_today),
+            ),
+            onTap: () async {
+              final date = await showDatePicker(
+                context: context,
+                initialDate: _previsaoDevolucao,
+                firstDate: DateTime.now(),
+                lastDate: DateTime.now().add(const Duration(days: 365)),
+              );
+              if (date == null) return;
+              
+              if (!mounted) return;
+              final time = await showTimePicker(
+                context: context,
+                initialTime: TimeOfDay.fromDateTime(_previsaoDevolucao),
+              );
+              if (time == null) return;
+
+              setState(() {
+                _previsaoDevolucao = DateTime(
+                  date.year, date.month, date.day,
+                  time.hour, time.minute,
+                );
+              });
+            },
+          ),
+          if (_error != null) ...[
+            const SizedBox(height: 16),
+            Text(_error!, style: const TextStyle(color: Colors.red)),
+          ],
+        ],
+      ),
+      actions: [
+        TextButton(
+          onPressed: _isLoading ? null : () => Navigator.of(context).pop(),
+          child: const Text('Cancelar'),
+        ),
+        ElevatedButton(
+          onPressed: _isLoading ? null : _submit,
+          child: _isLoading
+              ? const SizedBox(width: 20, height: 20, child: CircularProgressIndicator(strokeWidth: 2))
+              : const Text('Confirmar Retirada'),
+        ),
+      ],
+    );
+  }
+}
+
+class _MaterialSaldo {
+  final int localId;
+  final String localNome;
+  final double qtDisp;
+  final String? lote;
+
+  _MaterialSaldo({
+    required this.localId,
+    required this.localNome,
+    required this.qtDisp,
+    this.lote,
+  });
+
+  factory _MaterialSaldo.fromJson(Map<String, dynamic> json) {
+    return _MaterialSaldo(
+      localId: json['local']['id'],
+      localNome: json['local']['nome'] ?? 'Local desconhecido',
+      qtDisp: (json['qt_disp'] as num).toDouble(),
+      lote: json['lote'],
+    );
+  }
+}
+
+
+class _ModalRetirarMaterial extends StatefulWidget {
+  final MaterialCatalogo item;
+  final String token;
+  final VoidCallback onSuccess;
+
+  const _ModalRetirarMaterial({
+    required this.item,
+    required this.token,
+    required this.onSuccess,
+  });
+
+  @override
+  State<_ModalRetirarMaterial> createState() => _ModalRetirarMaterialState();
+}
+
+class _ModalRetirarMaterialState extends State<_ModalRetirarMaterial> {
+  // Estado da UI
+  bool _isLoadingSaldos = true;
+  bool _isSubmitting = false;
+  String? _error;
+
+  // Dados do formulário
+  final TextEditingController _qtController = TextEditingController(text: '1');
+  DateTime _previsaoDevolucao = DateTime.now().add(const Duration(days: 1));
+  _MaterialSaldo? _saldoSelecionado;
+  
+  // Lista de locais disponíveis
+  List<_MaterialSaldo> _saldos = [];
+  
+  @override
+  void initState() {
+    super.initState();
+    _fetchSaldos();
+  }
+
+  // PASSO 1: Buscar os locais onde este material existe
+  Future<void> _fetchSaldos() async {
+    setState(() { _isLoadingSaldos = true; _error = null; });
+    try {
+      final response = await http.get(
+        // Usamos o endpoint que você já tem
+        Uri.parse('http://localhost:8080/materiais/${widget.item.id}/saldos'),
+        headers: { 'Authorization': 'Bearer ${widget.token}' },
+      );
+
+      if (!mounted) return;
+
+      if (response.statusCode == 200) {
+        final data = json.decode(utf8.decode(response.bodyBytes));
+        final List<dynamic> saldosData = data['saldos'] ?? [];
+        
+        _saldos = saldosData
+            .map((json) => _MaterialSaldo.fromJson(json))
+            .where((s) => s.qtDisp > 0) // Só mostrar locais com estoque
+            .toList();
+
+        if (_saldos.isNotEmpty) {
+          _saldoSelecionado = _saldos.first; // Pré-seleciona o primeiro
+        } else {
+          _error = 'Este material não tem estoque em nenhum local.';
+        }
+
+      } else {
+        _error = 'Falha ao buscar locais de estoque.';
+      }
+    } catch (e) {
+      if (mounted) _error = 'Erro de conexão: ${e.toString()}';
+    } finally {
+      if (mounted) setState(() { _isLoadingSaldos = false; });
+    }
+  }
+
+  // PASSO 2: Enviar a retirada (POST)
+  Future<void> _submit() async {
+    setState(() { _isSubmitting = true; _error = null; });
+
+    final double? quantidade = double.tryParse(_qtController.text);
+
+    // Validação
+    if (quantidade == null || quantidade <= 0) {
+      setState(() { _error = 'Quantidade inválida.'; _isSubmitting = false; });
+      return;
+    }
+    if (_saldoSelecionado == null) {
+      setState(() { _error = 'Selecione um local de origem.'; _isSubmitting = false; });
+      return;
+    }
+    if (quantidade > _saldoSelecionado!.qtDisp) {
+      setState(() { _error = 'Quantidade indisponível. Máx: ${_saldoSelecionado!.qtDisp}'; _isSubmitting = false; });
+      return;
+    }
+
+    try {
+      final body = json.encode({
+        'material_id': widget.item.id,
+        'local_id': _saldoSelecionado!.localId,
+        'lote': _saldoSelecionado!.lote, // Envia o lote (se houver)
+        'quantidade': quantidade,
+        'previsao_devolucao': _previsaoDevolucao.toIso8601String(),
+      });
+
+      final response = await http.post(
+        Uri.parse('http://localhost:8080/movimentacoes/saida'),
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': 'Bearer ${widget.token}',
+        },
+        body: body,
+      );
+
+      if (!mounted) return;
+
+      if (response.statusCode == 200) {
+        Navigator.of(context).pop();
+        widget.onSuccess();
+      } else {
+        final Map<String, dynamic> errorData = json.decode(response.body);
+        setState(() {
+          _error = errorData['error'] ?? 'Falha ao retirar o item.';
+          _isSubmitting = false;
+        });
+      }
+    } catch (e) {
+      if (!mounted) return;
+      setState(() {
+        _error = 'Erro de conexão: ${e.toString()}';
+        _isSubmitting = false;
+      });
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return AlertDialog(
+      title: Text('Retirar ${widget.item.nome}'),
+      content: _buildForm(),
+      actions: [
+        TextButton(
+          onPressed: _isSubmitting ? null : () => Navigator.of(context).pop(),
+          child: const Text('Cancelar'),
+        ),
+        ElevatedButton(
+          // Desabilitado se estiver buscando saldos OU se não tiver saldos
+          onPressed: (_isSubmitting || _isLoadingSaldos || _saldos.isEmpty) ? null : _submit,
+          child: _isSubmitting
+              ? const SizedBox(width: 20, height: 20, child: CircularProgressIndicator(strokeWidth: 2))
+              : const Text('Confirmar Retirada'),
+        ),
+      ],
+    );
+  }
+
+  // Constrói o formulário
+  Widget _buildForm() {
+    if (_isLoadingSaldos) {
+      return const Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          CircularProgressIndicator(),
+          SizedBox(height: 16),
+          Text('Buscando locais com estoque...'),
+        ],
+      );
+    }
+    
+    // (Pode ser melhorado para um DatePicker igual ao do instrumento)
+     final TextEditingController dateController = TextEditingController(
+      text: DateFormat('dd/MM/yyyy HH:mm').format(_previsaoDevolucao),
+    );
+
+    return SingleChildScrollView(
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text('MAT${widget.item.matId}'),
+          const SizedBox(height: 16),
+          // 1. Dropdown de Locais
+          DropdownButtonFormField<_MaterialSaldo>(
+            value: _saldoSelecionado,
+            isExpanded: true,
+            decoration: const InputDecoration(
+              labelText: 'Local de Origem',
+              border: OutlineInputBorder(),
+            ),
+            items: _saldos.map((saldo) {
+              return DropdownMenuItem(
+                value: saldo,
+                // Mostra Local, Lote e Quantidade
+                child: Text(
+                  '${saldo.localNome} (Disponível: ${saldo.qtDisp})',
+                  overflow: TextOverflow.ellipsis,
+                ),
+              );
+            }).toList(),
+            onChanged: (saldo) {
+              setState(() {
+                _saldoSelecionado = saldo;
+              });
+            },
+          ),
+          const SizedBox(height: 16),
+          // 2. Campo de Quantidade
+          TextField(
+            controller: _qtController,
+            keyboardType: const TextInputType.numberWithOptions(decimal: true),
+            decoration: const InputDecoration(
+              labelText: 'Quantidade a retirar',
+              border: OutlineInputBorder(),
+            ),
+          ),
+          const SizedBox(height: 16),
+           // 3. Campo de Data
+           TextField(
+            controller: dateController,
+            readOnly: true,
+            decoration: const InputDecoration(
+              labelText: 'Previsão de Devolução',
+              border: OutlineInputBorder(),
+              suffixIcon: Icon(Icons.calendar_today),
+            ),
+            onTap: () async {
+               final date = await showDatePicker(
+                context: context,
+                initialDate: _previsaoDevolucao,
+                firstDate: DateTime.now(),
+                lastDate: DateTime.now().add(const Duration(days: 365)),
+              );
+              if (date == null) return;
+              
+              if (!mounted) return;
+              final time = await showTimePicker(
+                context: context,
+                initialTime: TimeOfDay.fromDateTime(_previsaoDevolucao),
+              );
+              if (time == null) return;
+
+              setState(() {
+                _previsaoDevolucao = DateTime(
+                  date.year, date.month, date.day,
+                  time.hour, time.minute,
+                );
+              });
+            },
+          ),
+          if (_error != null) ...[
+            const SizedBox(height: 16),
+            Text(_error!, style: const TextStyle(color: Colors.red)),
+          ],
+        ],
+      ),
     );
   }
 }

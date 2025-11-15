@@ -2,6 +2,7 @@ import 'package:dart_frog/dart_frog.dart';
 import 'package:postgres/postgres.dart';
 import 'package:backend/api_utils.dart';
 import 'package:dart_jsonwebtoken/dart_jsonwebtoken.dart';
+import 'dart:async'; 
 
 class _BadRequest implements Exception {
   final String message;
@@ -13,6 +14,7 @@ class _NotFound implements Exception {
   _NotFound(this.message);
 }
 
+// Extrai o ID de 'usuarios(id_usuario)'
 int? _userIdFromContext(RequestContext ctx) {
   try {
     final cfg = ctx.read<Map<String, String>>();
@@ -36,105 +38,116 @@ Future<Response> onRequest(RequestContext context) async {
     return Response(statusCode: 405);
   }
 
-  final guard = await requireAdmin(context);
-  if (guard != null) return guard;
-
   final uid = _userIdFromContext(context);
-  if (uid == null) return jsonUnauthorized('token inválido');
+  if (uid == null) return jsonUnauthorized('Token inválido ou ausente.');
 
   final conn = context.read<Connection>();
 
   try {
     final body = await readJson(context);
     final materialId = body['material_id'];
-    final origemLocalId = body['local_id']; // origem
-    final lote = (body['lote'] as String?)?.trim();
-    final quantidade = body['quantidade'];
-    final observacao = (body['observacao'] as String?)?.trim();
-    final finalidade = (body['finalidade'] as String?)?.trim();
+    final instrumentoId = body['instrumento_id'];
+    final previsaoDevolucaoRaw = body['previsao_devolucao'] as String?;
 
-    if (materialId is! int) throw _BadRequest('material_id obrigatório');
-    if (origemLocalId is! int) throw _BadRequest('local_id obrigatório');
-    if (quantidade is! num || quantidade <= 0) {
-      throw _BadRequest('quantidade deve ser > 0');
+    if (previsaoDevolucaoRaw == null) {
+      throw _BadRequest('previsao_devolucao (ISO 8601) obrigatória');
+    }
+    final previsaoDevolucao = DateTime.tryParse(previsaoDevolucaoRaw);
+    if (previsaoDevolucao == null) {
+      throw _BadRequest('Formato de data inválido para previsao_devolucao');
     }
 
-    // valida material/local
-    final m = await conn.execute(
-      Sql.named('SELECT 1 FROM materiais WHERE id=@id'),
-      parameters: {'id': materialId},
-    );
-    if (m.isEmpty) throw _BadRequest('material não encontrado');
-
-    final l = await conn.execute(
-      Sql.named('SELECT 1 FROM locais_fisicos WHERE id=@id'),
-      parameters: {'id': origemLocalId},
-    );
-    if (l.isEmpty) throw _NotFound('local não encontrado');
-
-    // Apenas insere; trigger valida/aplica débito no saldo
-    final ins = await conn.execute(
-      Sql.named('''
-        INSERT INTO movimentacao_material
-          (operacao, material_id, origem_local_id, destino_local_id, lote, quantidade, finalidade, responsavel_id, observacao)
-        VALUES
-          ('saida', @mid, @origem, NULL, @lote, @qtd, @fin, @uid, @obs)
-        RETURNING id, created_at
-      '''),
-      parameters: {
-        'mid': materialId,
-        'origem': origemLocalId,
-        'lote': (lote?.isEmpty ?? true) ? null : lote,
-        'qtd': quantidade,
-        'fin': (finalidade?.isEmpty ?? true) ? null : finalidade,
-        'uid': uid,
-        'obs': (observacao?.isEmpty ?? true) ? null : observacao,
-      },
-    );
-
-// opcional: saldo após trigger (na origem)
-    Result saldo;
-    if (lote == null || lote.isEmpty) {
-      saldo = await conn.execute(
+    // ==========================================================
+    // ===== ROTA 1: SAÍDA DE INSTRUMENTO =======================
+    // ==========================================================
+    if (instrumentoId != null) {
+      final rows = await conn.execute(
         Sql.named('''
-      SELECT id, lote, qt_disp::float8 AS qt_disp, minimo::float8 AS minimo
-        FROM estoque_saldos
-       WHERE material_id=@mid AND local_id=@lid AND lote IS NULL
-       LIMIT 1
-    '''),
-        parameters: {'mid': materialId, 'lid': origemLocalId},
+          UPDATE instrumentos
+          SET 
+            status = 'em_uso',
+            responsavel_atual_id = @uid,
+            local_atual_id = NULL, 
+            previsao_devolucao = @previsao
+          WHERE
+            id = @id AND status = 'disponivel'
+        RETURNING id, patrimonio, status::text, previsao_devolucao
+        '''),
+        parameters: {
+          'uid': uid,
+          'previsao': previsaoDevolucao,
+          'id': instrumentoId,
+        },
       );
-    } else {
-      saldo = await conn.execute(
-        Sql.named('''
-      SELECT id, lote, qt_disp::float8 AS qt_disp, minimo::float8 AS minimo
-        FROM estoque_saldos
-       WHERE material_id=@mid AND local_id=@lid AND lote = @lote
-       LIMIT 1
-    '''),
-        parameters: {'mid': materialId, 'lid': origemLocalId, 'lote': lote},
-      );
+      
+      if (rows.isEmpty) {
+        throw _NotFound('Instrumento não encontrado ou indisponível para retirada.');
+      }
+
+      // --- CORREÇÃO ---
+      // Converte o DateTime para uma String JSON-safe (ISO 8601)
+      final instrumentoData = rows.first.toColumnMap();
+      final previsao = instrumentoData['previsao_devolucao'] as DateTime;
+      instrumentoData['previsao_devolucao'] = previsao.toIso8601String();
+
+      return jsonOk({'instrumento': instrumentoData});
+      // --- FIM DA CORREÇÃO ---
     }
 
-    final s = saldo.isNotEmpty ? saldo.first : null;
+    // ==========================================================
+    // ===== ROTA 2: SAÍDA DE MATERIAL ==========================
+    // ==========================================================
+    else if (materialId != null) {
+      final origemLocalId = body['local_id']; 
+      final lote = (body['lote'] as String?)?.trim();
+      final quantidade = body['quantidade'];
 
-    return jsonOk({
-      'mov_id': ins.first[0],
-      'saldo_origem': s == null
-          ? null
-          : {
-              'saldo_id': s[0],
-              'lote': s[1],
-              'qt_disp': s[2],
-              'minimo': s[3],
-            }
-    });
+      if (materialId is! int) throw _BadRequest('material_id obrigatório');
+      if (origemLocalId is! int) throw _BadRequest('local_id obrigatório');
+      if (quantidade is! num || quantidade <= 0) {
+        throw _BadRequest('quantidade deve ser > 0');
+      }
+
+      // CORRIGIDO: Usando 'retirada' (o valor do seu enum) em vez de 'saida'
+      final ins = await conn.execute(
+        Sql.named('''
+          INSERT INTO movimentacao_material
+            (operacao, material_id, origem_local_id, responsavel_id, lote, quantidade, previsao_devolucao)
+          VALUES
+            ('retirada', @mid, @origem, @uid, @lote, @qtd, @previsao)
+          RETURNING id, created_at
+        '''),
+        parameters: {
+          'mid': materialId,
+          'origem': origemLocalId,
+          'uid': uid,
+          'lote': (lote?.isEmpty ?? true) ? null : lote,
+          'qtd': quantidade,
+          'previsao': previsaoDevolucao, // <-- Usando o DateTime
+        },
+      );
+      
+      // NOTA: A Rota 2 não falha porque você (corretamente) não incluiu
+      // o 'created_at' (que também é um DateTime) na resposta JSON.
+      return jsonOk({'mov_id': ins.first[0]});
+    }
+    
+    // ==========================================================
+    // ===== ROTA 3: ERRO (NENHUM ID) ===========================
+    // ==========================================================
+    else {
+      throw _BadRequest('instrumento_id ou material_id deve ser fornecido.');
+    }
+
   } on _BadRequest catch (e) {
     return jsonBad({'error': e.message});
   } on _NotFound catch (e) {
     return jsonNotFound(e.message);
   } on PgException catch (e, st) {
     print('POST /movimentacoes/saida pg error: $e\n$st');
+    // if (e.code == 'P0001') { // Erro da Trigger (ex: estoque negativo)
+    //    return jsonBad({'error': e.message});
+    // }
     return jsonServer({'error': 'internal', 'detail': e.message});
   } catch (e, st) {
     print('POST /movimentacoes/saida error: $e\n$st');

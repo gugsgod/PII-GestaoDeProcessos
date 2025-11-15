@@ -376,7 +376,7 @@ class _AddUserDialogState extends State<_AddUserDialog> {
   final TextEditingController _emailController = TextEditingController();
   final TextEditingController _senhaController = TextEditingController();
 
-  final Map<String, String> _funcoesMap = {'Técnico': 'Tecnico', 'Administrador': 'admin'};
+  final Map<String, String> _funcoesMap = {'Técnico': 'tecnico', 'Administrador': 'admin'};
   late String _selectedFuncaoDisplay;
   bool _isSaving = false;
 
