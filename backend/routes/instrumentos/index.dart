@@ -24,9 +24,33 @@ Future<Response> _get(RequestContext context) async {
   
   final connection = context.read<Connection>();
 
+  final qp = context.request.uri.queryParameters;
+  final bool? filtroAtivo = (qp['ativo'] == 'true');
+  
+  String whereClause = '';
+  final params = <String, dynamic>{};
+
+  // Se o filtro ?ativo=true for passado, adicione-o à query
+  if (filtroAtivo == true) {
+    whereClause = 'WHERE i.ativo = @ativo';
+    params['ativo'] = true;
+  }
+
   try{
     final result = await connection.execute(
-      'SELECT id, patrimonio, descricao, categoria, status, local_atual_id, responsavel_atual_id, proxima_calibracao_em, ativo, created_at, updated_at FROM instrumentos;'
+      Sql.named('''
+        SELECT 
+          i.id, i.patrimonio, i.descricao, i.categoria, 
+          i.status::text AS status, 
+          i.local_atual_id, 
+          i.responsavel_atual_id, i.proxima_calibracao_em, 
+          i.ativo, i.created_at, i.updated_at,
+          lf.nome AS local_atual_nome
+        FROM instrumentos i
+        LEFT JOIN locais_fisicos lf ON i.local_atual_id = lf.id
+        $whereClause 
+      '''),
+      parameters: params, // Passa os parâmetros (pode estar vazio)
     );
 
     dynamic _convertValue(dynamic value) {
@@ -97,13 +121,17 @@ Future<Response> _post(RequestContext context) async {
           descricao,
           categoria,
           local_atual_id,
-          proxima_calibracao_em
+          proxima_calibracao_em,
+          status,
+          ativo
         ) VALUES (
           @patrimonio,
           @descricao,
           @categoria,
           @localId,
-          @proximaCalibracao
+          @proximaCalibracao,
+          'disponivel',
+          true
         ) RETURNING id;
       '''),
       parameters: {

@@ -38,13 +38,19 @@ class InstrumentoCatalogo {
   bool get calibracaoVencida => proximaCalibracao.isBefore(DateTime.now());
 
   factory InstrumentoCatalogo.fromJson(Map<String, dynamic> json) {
+    final String statusString = json['status']?.toString() ?? 'inativo';
+    final bool isAtivo = json['ativo'] as bool? ?? false;
+
     return InstrumentoCatalogo(
       id: json['id']?.toString() ?? 'N/A',
       nome: json['descricao'] ?? 'N/A',
       patrimonio: json['patrimonio']?.toString() ?? 'N/A',
-      local: json['local_atual_nome']?.toString() ?? 'Em uso ou não mapeado',
+      // Usando o campo de nome do local que o backend agora envia
+      local: json['local_atual_nome']?.toString() ?? 'N/A', 
       proximaCalibracao: DateTime.tryParse(json['proxima_calibracao_em'] ?? '') ?? DateTime.now(),
-      disponivel: (json['status']?.toString() ?? 'inativo') == 'ativo',
+      
+      // CORREÇÃO: Está disponível SOMENTE SE (ativo == true) E (status == 'disponivel')
+      disponivel: (isAtivo && statusString == 'disponivel'), 
     );
   }
 }
@@ -149,8 +155,6 @@ class _CatalogoState extends State<Catalogo> {
     }
 
     if (token == null || !auth.isAuthenticated) {
-      // Isso não deve acontecer por causa do guardião no build,
-      // mas é uma boa prática.
       if (mounted) {
         setState(() {
           _catalogoError = 'Token de acesso ausente ou inválido.';
@@ -168,10 +172,28 @@ class _CatalogoState extends State<Catalogo> {
     };
 
     try {
+      // ==========================================================
+      // ===== CORREÇÃO AQUI ======================================
+      // ==========================================================
+      
+      // 1. Criamos a URI de Instrumentos COM o filtro ?ativo=true
+      // (O seu arquivo estava chamando '/instrumentos' sem filtro)
+      final instrumentosUri = Uri.parse('$baseUrl/instrumentos').replace(
+        queryParameters: {'ativo': 'true'},
+      );
+      
+      // 2. Criamos a URI de Materiais COM o filtro ?ativo=true
+      // (O seu arquivo estava chamando '/materiais' sem filtro)
+      final materiaisUri = Uri.parse('$baseUrl/materiais').replace(
+        queryParameters: {'limit': '100'}, // Remove 'ativo': 'true'
+      );
+      // ==========================================================
+
+
       // Executa as duas chamadas de API em paralelo
       final responses = await Future.wait([
-        http.get(Uri.parse('$baseUrl/instrumentos/catalogo'), headers: headers).timeout(const Duration(seconds: 5)),
-        http.get(Uri.parse('$baseUrl/materiais'), headers: headers).timeout(const Duration(seconds: 5)),
+        http.get(instrumentosUri, headers: headers).timeout(const Duration(seconds: 5)), // <-- URI CORRIGIDA
+        http.get(materiaisUri, headers: headers).timeout(const Duration(seconds: 5)),    // <-- URI CORRIGIDA
       ]);
 
       // Processa resposta de Instrumentos
@@ -179,13 +201,11 @@ class _CatalogoState extends State<Catalogo> {
         final List<dynamic> data = json.decode(utf8.decode(responses[0].bodyBytes));
         _instrumentos = data.map((json) => InstrumentoCatalogo.fromJson(json)).toList();
       } else {
-        // Joga um erro específico para ser pego abaixo
         throw Exception('Falha ao carregar instrumentos: ${responses[0].statusCode}');
       }
 
       // Processa resposta de Materiais
       if (responses[1].statusCode == 200) {
-        // A rota de materiais é paginada, a de instrumentos não.
         final Map<String, dynamic> decoded = json.decode(utf8.decode(responses[1].bodyBytes));
         final List<dynamic> data = decoded['data'] ?? [];
         _materiais = data.map((json) => MaterialCatalogo.fromJson(json)).toList();
@@ -203,11 +223,9 @@ class _CatalogoState extends State<Catalogo> {
       }
     } on http.ClientException catch (e) {
       if (mounted) {
-        // Este é o erro que você está vendo (ClientFailed to fetch)
         setState(() => _catalogoError = 'Erro de conexão (CORS ou DNS): ${e.message}');
       }
     } catch (e) {
-      // Pega qualquer outro erro (como os 'throw Exception' acima)
       if (mounted) {
         setState(() {
           _catalogoError = e.toString().replaceAll("Exception: ", "");
@@ -217,7 +235,7 @@ class _CatalogoState extends State<Catalogo> {
       if (mounted) {
         setState(() {
           _isLoading = false;
-          _filtrarDados(); // Aplica o filtro inicial (mesmo vazio)
+          _filtrarDados(); 
         });
       }
     }
@@ -564,162 +582,199 @@ void _onRetiradaSuccess() {
   Widget _buildInstrumentoCard(InstrumentoCatalogo item) {
     final bool vencida = item.calibracaoVencida;
 
-    return Container(
-      padding: const EdgeInsets.all(16),
-      decoration: BoxDecoration(
-        color: const Color.fromARGB(209, 255, 255, 255),
-        borderRadius: BorderRadius.circular(12),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          // Linha 1: Ícone, Título, ID, Tags
-          Row(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              // Ícone
-              const Icon(Icons.construction, color: Colors.green, size: 32),
-              const SizedBox(width: 12),
-              // Título e ID
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
+    final bool isDisponivel = item.disponivel; 
+
+    return Opacity(
+      // Se não estiver disponível, deixa o card semi-transparente
+      opacity: isDisponivel ? 1.0 : 0.5, 
+      child: Container(
+        padding: const EdgeInsets.all(16),
+        decoration: BoxDecoration(
+          color: const Color.fromARGB(209, 255, 255, 255),
+          borderRadius: BorderRadius.circular(12),
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            // Linha 1: Ícone, Título, ID, Tags
+            Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                // Ícone
+                Icon(
+                  Icons.construction, 
+                  color: isDisponivel ? Colors.green : Colors.grey, // Cor muda com status
+                  size: 32
+                ),
+                const SizedBox(width: 12),
+                // Título e ID
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(item.nome, style: const TextStyle(color: Colors.black, fontWeight: FontWeight.bold, fontSize: 16)),
+                      Text(item.patrimonio, style: const TextStyle(color: Colors.black, fontSize: 14)),
+                    ],
+                  ),
+                ),
+                // Tags (AGORA SÃO CONDICIONAIS)
+                Column(
+                  crossAxisAlignment: CrossAxisAlignment.end,
                   children: [
-                    Text(item.nome, style: const TextStyle(color: Colors.black, fontWeight: FontWeight.bold, fontSize: 16)),
-                    Text(item.patrimonio, style: const TextStyle(color: Colors.black, fontSize: 14)),
+                    if (isDisponivel)
+                      _TagChip(
+                        label: "Disponível",
+                        backgroundColor: Colors.green.withOpacity(0.2),
+                        textColor: Colors.green,
+                      )
+                    else
+                      _TagChip(
+                        label: "Indisponível",
+                        backgroundColor: Colors.grey.withOpacity(0.2),
+                        textColor: Colors.grey.shade700,
+                      ),
+                      
+                    if (vencida) ...[
+                      const SizedBox(height: 4),
+                      _TagChip(
+                        label: "Calibração Vencida",
+                        backgroundColor: Colors.red.withOpacity(0.2),
+                        textColor: Colors.red.shade300,
+                      ),
+                    ]
                   ],
                 ),
-              ),
-              // Tags
-              Column(
-                crossAxisAlignment: CrossAxisAlignment.end,
-                children: [
-                  _TagChip(
-                    label: "Disponível",
-                    backgroundColor: Colors.green.withOpacity(0.2),
-                    textColor: Colors.green,
-                  ),
-                  if (vencida) ...[
-                    const SizedBox(height: 4),
-                    _TagChip(
-                      label: "Calibração Vencida",
-                      backgroundColor: Colors.red.withOpacity(0.2),
-                      textColor: Colors.red.shade300,
-                    ),
-                  ]
-                ],
-              ),
-            ],
-          ),
-          const Spacer(), // Ocupa o espaço
-          // Linha 2: Local
-          _InfoLinha(
-            icon: Icons.location_on_outlined,
-            iconColor: Colors.black,
-            title: "Local:",
-            value: item.local,
-            valueColor: Colors.black,
-          ),
-          // Linha 3: Calibração
-          _InfoLinha(
-            icon: Icons.calendar_today_outlined,
-            title: "Calibração:",
-            value: DateFormat('dd/MM/yyyy').format(item.proximaCalibracao),
-            iconColor: vencida ? Colors.red.shade300 : Colors.black,
-            valueColor: vencida ? Colors.red.shade300 : Colors.black,
-          ),
-          const SizedBox(height: 16),
-          // Linha 4: Botão
-          SizedBox(
-            width: double.infinity,
-            child: ElevatedButton.icon(
-              onPressed: () {
-                _abrirModalRetirada(context, item);
-              },
-              icon: const Icon(Icons.upload, size: 16, color: Colors.white),
-              label: const Text("Retirar Instrumento"),
-              style: ElevatedButton.styleFrom(
-                backgroundColor: Colors.green.shade600,
-                foregroundColor: Colors.white,
+              ],
+            ),
+            const Spacer(), // Ocupa o espaço
+            // Linha 2: Local
+            _InfoLinha(
+              icon: Icons.location_on_outlined,
+              iconColor: Colors.black,
+              title: "Local:",
+              value: item.local,
+              valueColor: Colors.black,
+            ),
+            // Linha 3: Calibração
+            _InfoLinha(
+              icon: Icons.calendar_today_outlined,
+              title: "Calibração:",
+              value: DateFormat('dd/MM/yyyy').format(item.proximaCalibracao),
+              iconColor: vencida ? Colors.red.shade300 : Colors.black,
+              valueColor: vencida ? Colors.red.shade300 : Colors.black,
+            ),
+            const SizedBox(height: 16),
+            // Linha 4: Botão (AGORA CONDICIONAL)
+            SizedBox(
+              width: double.infinity,
+              child: ElevatedButton.icon(
+                // Desabilita o botão se não estiver disponível
+                onPressed: isDisponivel ? () {
+                  _abrirModalRetirada(context, item);
+                } : null, 
+                icon: Icon(Icons.upload, size: 16, color: Colors.white),
+                label: Text(isDisponivel ? "Retirar Instrumento" : "Indisponível"),
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: isDisponivel ? Colors.green.shade600 : Colors.grey.shade600,
+                  foregroundColor: Colors.white,
+                ),
               ),
             ),
-          ),
-        ],
+          ],
+        ),
       ),
     );
   }
 
   // Constrói o Card de Material (baseado na image_c17684.png)
   Widget _buildMaterialCard(MaterialCatalogo item) {
-    return Container(
-      padding: const EdgeInsets.all(16),
-      decoration: BoxDecoration(
-        color: const Color.fromARGB(209, 255, 255, 255),
-        borderRadius: BorderRadius.circular(12),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          // Linha 1: Ícone, Título, ID, Tags
-          Row(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              // Ícone
-              const Icon(Icons.inventory_2_outlined, color: Color(0xFF3B82F6), size: 32),
-              const SizedBox(width: 12),
-              // Título e ID
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
+    final bool isDisponivel = item.disponivel;
+    return Opacity(
+      // Se não estiver disponível (inativo), deixa o card semi-transparente
+      opacity: isDisponivel ? 1.0 : 0.5,
+      child: Container(
+        padding: const EdgeInsets.all(16),
+        decoration: BoxDecoration(
+          color: const Color.fromARGB(209, 255, 255, 255),
+          borderRadius: BorderRadius.circular(12),
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            // Linha 1: Ícone, Título, ID, Tags
+            Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                // Ícone
+                Icon(
+                  Icons.inventory_2_outlined, 
+                  color: isDisponivel ? const Color(0xFF3B82F6) : Colors.grey, // Cor muda com status
+                  size: 32
+                ),
+                const SizedBox(width: 12),
+                // Título e ID
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(item.nome, style: const TextStyle(color: Colors.black, fontWeight: FontWeight.bold, fontSize: 16)),
+                      Text("MAT${item.matId}", style: const TextStyle(color: Colors.black, fontSize: 14)),
+                    ],
+                  ),
+                ),
+                // Tags
+                Column(
+                  crossAxisAlignment: CrossAxisAlignment.end,
                   children: [
-                    Text(item.nome, style: const TextStyle(color: Colors.black, fontWeight: FontWeight.bold, fontSize: 16)),
-                    Text("MAT${item.matId}", style: const TextStyle(color: Colors.black, fontSize: 14)),
+                    _TagChip( // Tag de Categoria (sempre visível)
+                      label: item.categoria,
+                      backgroundColor: const Color(0xFF3B82F6).withOpacity(0.3),
+                      textColor: Colors.blue,
+                    ),
+                    const SizedBox(height: 4),
+                    // Tag de Status (CONDICIONAL)
+                    if (isDisponivel)
+                      _TagChip( 
+                        label: "Disponível",
+                        backgroundColor: Colors.green.withOpacity(0.2),
+                        textColor: Colors.green,
+                      )
+                    else
+                       _TagChip(
+                        label: "Inativo",
+                        backgroundColor: Colors.grey.withOpacity(0.2),
+                        textColor: Colors.grey.shade700,
+                      ),
                   ],
                 ),
-              ),
-              // Tags
-              Column(
-                crossAxisAlignment: CrossAxisAlignment.end,
-                children: [
-                  _TagChip( // Tag de Categoria (azul)
-                    label: item.categoria,
-                    backgroundColor: const Color(0xFF3B82F6).withOpacity(0.3),
-                    textColor: Colors.blue,
-                  ),
-                  const SizedBox(height: 4),
-                   _TagChip( // Tag de Disponível (verde)
-                    label: "Disponível",
-                    backgroundColor: Colors.green.withOpacity(0.2),
-                    textColor: Colors.green,
-                  ),
-                ],
-              ),
-            ],
-          ),
-          const Spacer(),
-          // Linha 2: Observação
-          const _InfoLinha(
-            icon: Icons.info_outline,
-            title: "OBS:",
-            value: "Retire os materiais na base mais próxima.",
-          ),
-          const SizedBox(height: 16),
-          // Linha 3: Botão
-          SizedBox(
-            width: double.infinity,
-            child: ElevatedButton.icon(
-              onPressed: () {
-                _abrirModalRetirada(context, item);
-              },
-              icon: const Icon(Icons.upload, size: 16, color: Colors.white),
-              label: const Text("Retirar Material"),
-              style: ElevatedButton.styleFrom(
-                backgroundColor: Colors.green.shade600,
-                foregroundColor: Colors.white,
+              ],
+            ),
+            const Spacer(),
+            // Linha 2: Observação
+            const _InfoLinha(
+              icon: Icons.info_outline,
+              title: "OBS:",
+              value: "Retire os materiais na base mais próxima.",
+            ),
+            const SizedBox(height: 16),
+            // Linha 3: Botão (CONDICIONAL)
+            SizedBox(
+              width: double.infinity,
+              child: ElevatedButton.icon(
+                // Desabilita o botão se não estiver disponível
+                onPressed: isDisponivel ? () {
+                  _abrirModalRetirada(context, item);
+                } : null,
+                icon: const Icon(Icons.upload, size: 16, color: Colors.white),
+                label: Text(isDisponivel ? "Retirar Material" : "Inativo"),
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: isDisponivel ? Colors.green.shade600 : Colors.grey.shade600,
+                  foregroundColor: Colors.white,
+                ),
               ),
             ),
-          ),
-        ],
+          ],
+        ),
       ),
     );
   }

@@ -52,14 +52,22 @@ class Instrument {
       return fallback;
     }
 
+    final String statusString = map['status']?.toString() ?? 'inativo';
+
+    // Mapeia os status do backend para o enum do frontend
+    final InstrumentStatus statusEnum;
+    if (statusString == 'ativo' || statusString == 'disponivel') {
+      statusEnum = InstrumentStatus.ativo;
+    } else {
+      statusEnum = InstrumentStatus.inativo;
+    }
+
     return Instrument(
       id: map['id']?.toString() ?? 'N/A',
       patrimonio: map['patrimonio']?.toString() ?? 'N/A',
       descricao: map['descricao']?.toString() ?? 'N/A',
       categoria: map['categoria']?.toString() ?? 'N/A',
-      status: (map['status']?.toString() ?? 'inativo') == 'ativo'
-          ? InstrumentStatus.ativo
-          : InstrumentStatus.inativo,
+      status: statusEnum, // <-- USA A VARIÁVEL CORRIGIDA
       localAtual: map['local_atual_id']?.toString() ?? 'N/A',
       responsavelAtual: map['responsavel_atual_id']?.toString() ?? 'N/A',
       proximaCalibracaoEm: _parseDate(

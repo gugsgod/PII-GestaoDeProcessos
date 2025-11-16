@@ -8,6 +8,10 @@ import 'package:http/http.dart' as http;
 import 'package:src/auth/auth_store.dart';
 import 'package:src/services/capitalize.dart';
 
+import 'dart:async';
+
+
+
 const String apiBaseUrl = 'http://localhost:8080';
 
 class TecnicoDrawer extends StatefulWidget {
@@ -65,7 +69,53 @@ class _TecnicoDrawerState extends State<TecnicoDrawer> {
       return null;
     }
 
-    // TODO: Implementar fetch dos dados reais da API
+    // Usamos o endpoint de pendências, pois ele tem todos os dados
+    final uri = Uri.parse('$apiBaseUrl/movimentacoes/pendentes');
+    final headers = _authHeaders(auth);
+
+    try {
+      final response = await http.get(uri, headers: headers).timeout(const Duration(seconds: 5));
+
+      if (response.statusCode == 200) {
+        final List<dynamic> data = json.decode(utf8.decode(response.bodyBytes));
+        
+        // Calcula os totais
+        int matCount = 0;
+        int instCount = 0;
+        int alertCount = 0;
+
+        for (var jsonItem in data) {
+          // Parse leve dos dados necessários
+          final isInst = (jsonItem['idMaterial'] as String?)?.startsWith('MAT') == false;
+          final previsaoStr = jsonItem['dataDevolucao'] as String?;
+          final previsao = DateTime.tryParse(previsaoStr ?? '');
+          
+          if (isInst) {
+            instCount++;
+          } else {
+            matCount++;
+          }
+          
+          if (previsao != null && previsao.isBefore(DateTime.now())) {
+            alertCount++;
+          }
+        }
+        
+        return _QuickStatus(
+          alertas: alertCount,
+          instrumentosEmUso: instCount,
+          materiaisEmUso: matCount,
+        );
+      } else {
+        // Falha na API
+        print('Erro QuickStatus drawer (API): ${response.statusCode}');
+        return null;
+      }
+    } catch (e) {
+      // Erro de rede ou parse
+      print('Erro QuickStatus drawer (Catch): ${e.toString()}');
+      return null;
+    }
   }
 
   @override
@@ -140,26 +190,32 @@ class _TecnicoDrawerState extends State<TecnicoDrawer> {
                   future: _statusFuture,
                   builder: (context, snapshot) {
                     if (snapshot.connectionState == ConnectionState.waiting) {
+
+                      final data = snapshot.data;
+                      final alertas = data?.alertas.toString() ?? '-';
+                      final inst = data?.instrumentosEmUso.toString() ?? '-';
+                      final mats = data?.materiaisEmUso.toString() ?? '-';
+
                       return Column(
                         children: [
                           _buildStatusItem(
                             dotColor: Colors.yellow.shade700,
                             text: 'Alertas ativos',
-                            value: '...',
+                            value: alertas,
                             pillColor: const Color(0xFF5A5A5A),
                             pillBorderColor: Color(0xFFA3A13C),
                           ),
                           _buildStatusItem(
                             dotColor: Colors.green.shade600,
                             text: 'Instrumentos em uso',
-                            value: '...',
+                            value: inst,
                             pillColor: const Color(0xFF0B4F3E),
                             pillBorderColor: Color(0xFF22C55E),
                           ),
                           _buildStatusItem(
                             dotColor: Colors.green.shade600,
                             text: 'Materiais em uso',
-                            value: '...',
+                            value: mats,
                             pillColor: const Color(0xFF0B4F3E),
                             pillBorderColor: Color(0xFF22C55E),
                           ),

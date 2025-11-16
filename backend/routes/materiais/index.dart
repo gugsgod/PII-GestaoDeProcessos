@@ -285,7 +285,7 @@ Future<Response> _delete(RequestContext context) async {
 
   try {
     final result = await connection.execute(
-      Sql.named("DELETE FROM materiais WHERE cod_sap = @cod_sap"),
+      Sql.named("UPDATE materiais SET ativo = false WHERE cod_sap = @cod_sap"),
       parameters: {'cod_sap': cod_sap},
     );
 
