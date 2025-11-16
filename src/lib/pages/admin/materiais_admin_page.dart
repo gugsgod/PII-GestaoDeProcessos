@@ -12,6 +12,33 @@ import 'package:printing/printing.dart';
 import '../../auth/auth_store.dart';
 import '../../widgets/admin/materiais_admin/table_actions_menu.dart';
 
+final String apiBaseUrl = "http://localhost:8080";
+
+class LocalFisico {
+  final int id;
+  final String nome;
+  final String? contexto;
+
+  LocalFisico({
+    required this.id,
+    required this.nome,
+    this.contexto,
+  });
+
+  factory LocalFisico.fromJson(Map<String, dynamic> json) {
+    return LocalFisico(
+      id: json['id'] as int,
+      nome: json['nome'] as String,
+      contexto: json['contexto'] as String?,
+    );
+  }
+
+  @override
+  String toString() {
+    return '$nome (${contexto?.toUpperCase() ?? 'N/D'})';
+  }
+}
+
 class MaterialItem {
   final int id;
   final int codigoSap;
@@ -67,17 +94,22 @@ class _MateriaisAdminPageState extends State<MateriaisAdminPage> {
     'Todas as Categorias',
     'Cabos',
     'Relés',
+    'Redes',
     'Conectores',
     'EPIs',
     'Ferramentas',
     'Peças',
   ];
 
+  List<LocalFisico> _locais = [];
+  bool _isLoadingLocais = true;
+
   @override
   void initState() {
     super.initState();
     _lastUpdated = DateTime.now();
     _fetchMateriais();
+    _fetchLocais();
   }
 
   @override
@@ -85,6 +117,41 @@ class _MateriaisAdminPageState extends State<MateriaisAdminPage> {
     _scrollController.dispose();
     _searchController.dispose();
     super.dispose();
+  }
+
+  Future<void> _fetchLocais() async {
+    final token = Provider.of<AuthStore>(context, listen: false).token;
+    if (token == null) return;
+
+    try {
+      final response = await http.get(
+        // Assuming your base URL is correctly defined elsewhere
+        Uri.parse('$apiBaseUrl/locais'),
+        headers: {'Authorization': 'Bearer $token'},
+      );
+
+      // --- DEBUG AQUI ---
+      print('Status Code GET /locais: ${response.statusCode}');
+      // --- FIM DEBUG ---
+
+      if (response.statusCode == 200) {
+        final List<dynamic> jsonList = jsonDecode(response.body)['data'] as List<dynamic>;
+        if (mounted) {
+          setState(() {
+            _locais = jsonList.map((j) => LocalFisico.fromJson(j as Map<String, dynamic>)).toList();
+          });
+        }
+      } 
+      // ... (Error handling omitted for brevity) ...
+    } catch (e) {
+      print('Erro de rede ao buscar locais: $e');
+    } finally {
+      if (mounted) {
+        setState(() {
+          _isLoadingLocais = false;
+        });
+      }
+    }
   }
 
   Future<void> _fetchMateriais() async {
@@ -141,50 +208,37 @@ class _MateriaisAdminPageState extends State<MateriaisAdminPage> {
   }
 
   // ---- Chama a API ----
-  Future<bool> _addNewMaterial(
-    int codSap,
-    String descricao,
-    String? apelido,
-    String? categoria,
-    String? unidade,
-  ) async {
+  Future<void> _addNewMaterial(Map<String, dynamic> data) async {
     // 1. Obter o token (NECESSÁRIO PARA O POST)
-    final auth = context.read<AuthStore>();
-    final token = auth.token;
-    if (token == null || !auth.isAuthenticated) {
-      _showSnackBar("Erro: Você não está autenticado.", isError: true);
-      return false;
-    }
-
-    const String baseUrl = "http://localhost:8080";
-    final uri = Uri.parse("$baseUrl/materiais");
+    final token = Provider.of<AuthStore>(context, listen: false).token;
+    if (token == null) return;
 
     try {
       final response = await http.post(
-        uri,
+        Uri.parse('$apiBaseUrl/materiais'),
         headers: {
-          "Content-Type": "application/json",
-          "Accept": "application/json",
-          "Authorization": "Bearer $token", // <- Token de Admin é crucial
+          'Content-Type': 'application/json',
+          'Authorization': 'Bearer $token',
         },
-        body: json.encode({
-          "cod_sap": codSap,
-          "descricao": descricao,
-          "apelido": (apelido == null || apelido.isEmpty) ? null : apelido,
-          "categoria": (categoria == null || categoria.isEmpty)
-              ? null
-              : categoria,
-          "unidade": (unidade == null || unidade.isEmpty) ? null : unidade,
-        }),
+        body: jsonEncode({
+          'cod_sap': data['cod_sap'],
+          'descricao': data['descricao'],
+          'apelido': data['apelido'],
+          'categoria': data['categoria'],
+          'unidade': data['unidade'],
+          'ativo': data['ativo'],
+          'quantidade_inicial': data['quantidade_inicial'],
+          'local_id': data['local_id'],
+          'lote': data['lote'],
+        })
       );
 
       if (response.statusCode == 201) {
         _showSnackBar(
-          "Material '$descricao' cadastrado com sucesso!",
+          "Material '${data['descricao']}' cadastrado com sucesso!",
           isError: false,
         );
         _fetchMateriais(); // Atualiza a lista
-        return true;
       } else {
         final errorBody = json.decode(utf8.decode(response.bodyBytes));
         throw Exception(errorBody["error"] ?? "Falha ao cadastrar material");
@@ -194,28 +248,28 @@ class _MateriaisAdminPageState extends State<MateriaisAdminPage> {
         "Erro: ${e.toString().replaceAll("Exception: ", "")}",
         isError: true,
       );
-      return false;
     }
   }
 
-  void _showAddMaterialDialog() {
+void _showAddMaterialDialog() {
+    if (_isLoadingLocais) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Aguarde, carregando locais disponíveis...')),
+      );
+      return;
+    }
+
     showDialog(
       context: context,
-      builder: (BuildContext context) {
+      builder: (context) {
         return _AddMaterialDialog(
-          // Passa as categorias (sem "Todas") para o dropdown
-          categories: _categories
-              .where((c) => c != 'Todas as Categorias')
-              .toList(),
-          onSave: (codSap, descricao, apelido, categoria, unidade) async {
-            // Chama a nova função de API
-            return await _addNewMaterial(
-              codSap,
-              descricao,
-              apelido,
-              categoria,
-              unidade,
-            );
+          // TODO: parâmetro categorias
+          categories: _categories.where((c) => c != 'Todas as Categorias').toList(),
+          locaisDisponiveis: _locais, // <-- PASSANDO LOCAIS
+          onMaterialAdded: (data) async {
+            await _addNewMaterial(data);
+            Navigator.of(context).pop();
+            _fetchMateriais();
           },
         );
       },
@@ -246,14 +300,9 @@ class _MateriaisAdminPageState extends State<MateriaisAdminPage> {
     // O backend espera um 'id' (int), mas o modelo 'Instrument' tem 'id' (String).
     // Precisamos converter.
     final int codSap = material.codigoSap;
-    if (codSap == null) {
-      _showSnackBar("Erro: ID inválido para exclusão.", isError: true);
-      return;
-    }
 
     // Prepara a chamada de API
-    const String baseUrl = "http://localhost:8080";
-    final uri = Uri.parse("$baseUrl/materiais"); // Rota do backend
+    final uri = Uri.parse("$apiBaseUrl/materiais"); // Rota do backend
 
     try {
       final response = await http.delete(
@@ -427,6 +476,7 @@ class _MateriaisAdminPageState extends State<MateriaisAdminPage> {
                   'Todas as Categorias',
                   'Cabos',
                   'Relés',
+                  'Redes',
                   'Conectores',
                   'EPIs',
                   'Ferramentas',
@@ -689,17 +739,16 @@ class _MateriaisAdminPageState extends State<MateriaisAdminPage> {
 }
 
 class _AddMaterialDialog extends StatefulWidget {
-  final Future<bool> Function(
-    int codSap,
-    String descricao,
-    String? apelido,
-    String? categoria,
-    String? unidade,
-  )
-  onSave;
-  final List<String> categories; // Recebe a lista de categorias
+  // NOVA ASSINATURA: Agora recebe os locais e um callback que aceita o Mapa de dados
+  final List<String> categories;
+  final List<LocalFisico> locaisDisponiveis;
+  final void Function(Map<String, dynamic>) onMaterialAdded;
 
-  const _AddMaterialDialog({required this.onSave, required this.categories});
+  const _AddMaterialDialog({
+    required this.categories,
+    required this.locaisDisponiveis, 
+    required this.onMaterialAdded,
+  });
 
   @override
   State<_AddMaterialDialog> createState() => _AddMaterialDialogState();
@@ -711,17 +760,29 @@ class _AddMaterialDialogState extends State<_AddMaterialDialog> {
   final TextEditingController _descricaoController = TextEditingController();
   final TextEditingController _apelidoController = TextEditingController();
   final TextEditingController _unidadeController = TextEditingController();
-  String? _selectedCategoria; // Categoria agora é opcional
-
+  // NOVOS CONTROLADORES PARA ESTOQUE
+  final TextEditingController _quantidadeController = TextEditingController();
+  final TextEditingController _loteController = TextEditingController();
+  
+  LocalFisico? _selectedLocal;
+  String? _error; // Para exibir erros de validação de estoque
+  String? _selectedCategoria; 
   bool _isSaving = false;
+  bool _ativo = true; 
 
   @override
   void initState() {
     super.initState();
-    // Inicia com a primeira categoria da lista (ou null se vazia)
-    _selectedCategoria = widget.categories.isNotEmpty
-        ? widget.categories.first
-        : null;
+    _selectedCategoria = widget.categories.isNotEmpty ? widget.categories.first : null;
+
+    if (widget.categories.isEmpty) {
+      _selectedCategoria = widget.categories.first;
+    }
+    
+    // Inicia com o primeiro local disponível (para estoque inicial)
+    if (widget.locaisDisponiveis.isNotEmpty) {
+      _selectedLocal = widget.locaisDisponiveis.first;
+    }
   }
 
   @override
@@ -730,35 +791,70 @@ class _AddMaterialDialogState extends State<_AddMaterialDialog> {
     _descricaoController.dispose();
     _apelidoController.dispose();
     _unidadeController.dispose();
+    // DISPOSE DOS NOVOS CONTROLADORES
+    _quantidadeController.dispose();
+    _loteController.dispose();
     super.dispose();
   }
 
   Future<void> _save() async {
+    // 1. VALIDAÇÃO DOS CAMPOS DE TEXTO E DROPDOWN
     if (!_formKey.currentState!.validate()) {
       return;
     }
+
+    if (widget.locaisDisponiveis.isEmpty) {
+      setState(() {
+        _error = 'Nenhum local de estoque encontrado. Cadastre um local primeiro.';
+        _isSaving = false;
+      });
+      return;
+    }
+    
+    // 2. VALIDAÇÃO DOS NOVOS CAMPOS DE ESTOQUE
+    final quantidade = num.tryParse(_quantidadeController.text.trim());
+
+    if (quantidade == null || quantidade <= 0) {
+      setState(() {
+        _error = 'Quantidade Inicial deve ser um número positivo.';
+        _isSaving = false;
+      });
+      return;
+    }
+    if (_selectedLocal == null) {
+      setState(() {
+        _error = 'Um Local de Estoque deve ser selecionado.';
+        _isSaving = false;
+      });
+      return;
+    }
+    
+    // Limpa erro anterior e inicia o estado de salvamento
     setState(() {
+      _error = null;
       _isSaving = true;
     });
 
-    // O validador já garantiu que isso é um int
-    final int codSap = int.parse(_codSapController.text.trim());
-
-    final bool success = await widget.onSave(
-      codSap,
-      _descricaoController.text.trim(),
-      _apelidoController.text.trim(),
-      _selectedCategoria,
-      _unidadeController.text.trim(),
-    );
-
-    if (success && mounted) {
-      Navigator.of(context).pop();
-    } else {
-      setState(() {
-        _isSaving = false;
-      });
-    }
+    // 3. PREPARAÇÃO DE DADOS E CHAMADA DE API
+    
+    final finalLote = _loteController.text.trim().isEmpty ? null : _loteController.text.trim();
+    
+    // CHAMA O CALLBACK COM TODOS OS DADOS (8 PARÂMETROS)
+    widget.onMaterialAdded({
+      'cod_sap': int.parse(_codSapController.text.trim()),
+      'descricao': _descricaoController.text.trim(),
+      'apelido': _apelidoController.text.trim(),
+      'categoria': _selectedCategoria,
+      'unidade': _unidadeController.text.trim(),
+      'ativo': _ativo,
+      // NOVOS PARÂMETROS DE ESTOQUE:
+      'quantidade_inicial': quantidade,
+      'local_id': _selectedLocal!.id,
+      'lote': finalLote,
+    });
+    
+    // O Navigator.pop() e o _isSaving=false serão tratados na função _addNewMaterial 
+    // no parent widget (MateriaisAdminPage), após a chamada da API.
   }
 
   @override
@@ -777,7 +873,8 @@ class _AddMaterialDialogState extends State<_AddMaterialDialog> {
           child: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
-              // Cód. SAP (Obrigatório)
+              // CÓDIGO SAP, DESCRIÇÃO, APELIDO, CATEGORIA, UNIDADE
+              // (Mantido igual)
               TextFormField(
                 controller: _codSapController,
                 style: const TextStyle(color: Colors.white),
@@ -797,7 +894,6 @@ class _AddMaterialDialogState extends State<_AddMaterialDialog> {
                 },
               ),
               const SizedBox(height: 16),
-              // Descrição (Obrigatório)
               TextFormField(
                 controller: _descricaoController,
                 style: const TextStyle(color: Colors.white),
@@ -813,7 +909,6 @@ class _AddMaterialDialogState extends State<_AddMaterialDialog> {
                 },
               ),
               const SizedBox(height: 16),
-              // Apelido (Opcional)
               TextFormField(
                 controller: _apelidoController,
                 style: const TextStyle(color: Colors.white),
@@ -823,7 +918,6 @@ class _AddMaterialDialogState extends State<_AddMaterialDialog> {
                 ),
               ),
               const SizedBox(height: 16),
-              // Categoria (Opcional - Dropdown)
               _buildDropdown(
                 value: _selectedCategoria,
                 hint: 'Selecione uma categoria',
@@ -837,7 +931,6 @@ class _AddMaterialDialogState extends State<_AddMaterialDialog> {
                 },
               ),
               const SizedBox(height: 16),
-              // Unidade (Opcional)
               TextFormField(
                 controller: _unidadeController,
                 style: const TextStyle(color: Colors.white),
@@ -846,6 +939,66 @@ class _AddMaterialDialogState extends State<_AddMaterialDialog> {
                   icon: Icons.straighten,
                 ),
               ),
+              
+              const SizedBox(height: 24),
+              // --- SEÇÃO DE ESTOQUE INICIAL ---
+              const Divider(color: Colors.white30, thickness: 1),
+              const SizedBox(height: 16),
+              const Text(
+                'ESTOQUE INICIAL (Obrigatório)',
+                style: TextStyle(color: Colors.blue, fontWeight: FontWeight.bold, fontSize: 18),
+              ),
+              const SizedBox(height: 16),
+
+              // 1. CAMPO QUANTIDADE INICIAL
+              TextFormField(
+                controller: _quantidadeController,
+                style: const TextStyle(color: Colors.white),
+                keyboardType: TextInputType.number,
+                decoration: _buildInputDecoration(
+                  label: 'Quantidade Inicial *',
+                  icon: Icons.numbers,
+                ),
+                validator: (value) {
+                  if (value == null || value.trim().isEmpty) return 'Obrigatório.';
+                  if (num.tryParse(value.trim()) == null || (num.tryParse(value.trim()) ?? 0) <= 0) return 'Deve ser um número positivo.';
+                  return null;
+                },
+              ),
+              const SizedBox(height: 16),
+
+              // 2. CAMPO LOCAL DE ESTOQUE
+              _buildDropdown(
+                label: 'Local de Estoque *',
+                icon: Icons.place,
+                value: _selectedLocal?.nome,
+                hint: 'Local de estoque',
+                items: widget.locaisDisponiveis.map((l) => l.nome).toList(),
+                onChanged: (String? newValue) {
+                  if (newValue != null) {
+                    setState(() {
+                      _selectedLocal = widget.locaisDisponiveis.firstWhere((l) => l.nome == newValue);
+                    });
+                  }
+                },
+              ),
+              const SizedBox(height: 16),
+
+              // 3. CAMPO LOTE (Opcional)
+              TextFormField(
+                controller: _loteController,
+                style: const TextStyle(color: Colors.white),
+                decoration: _buildInputDecoration(
+                  label: 'Lote (Opcional)',
+                  icon: Icons.bookmark_border,
+                ),
+              ),
+              
+              if (_error != null)
+                Padding(
+                  padding: const EdgeInsets.only(top: 16),
+                  child: Text(_error!, style: const TextStyle(color: Colors.red)),
+                ),
             ],
           ),
         ),
@@ -853,10 +1006,7 @@ class _AddMaterialDialogState extends State<_AddMaterialDialog> {
       actions: [
         TextButton(
           onPressed: () => Navigator.of(context).pop(),
-          child: const Text(
-            'Cancelar',
-            style: TextStyle(color: Colors.white70),
-          ),
+          child: const Text('Cancelar', style: TextStyle(color: Colors.white70)),
         ),
         ElevatedButton(
           onPressed: _isSaving ? null : _save,
@@ -865,59 +1015,70 @@ class _AddMaterialDialogState extends State<_AddMaterialDialog> {
             foregroundColor: Colors.white,
           ),
           child: _isSaving
-              ? const SizedBox(
-                  width: 20,
-                  height: 20,
-                  child: CircularProgressIndicator(
-                    strokeWidth: 2,
-                    color: Colors.white,
-                  ),
-                )
+              ? const SizedBox(width: 20, height: 20, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white))
               : const Text('Salvar'),
         ),
       ],
     );
   }
-
-  // Helper para o Dropdown (estilo dark)
+  
+  // Funções Helpers (Mantidas iguais para o resto do arquivo)
   Widget _buildDropdown({
     required String? value,
-    required String hint,
+    required hint,
     required List<String> items,
     required ValueChanged<String?> onChanged,
+    String label = '',
+    IconData? icon,
   }) {
     const Color inputFillColor = Color.fromARGB(255, 30, 24, 53);
     const Color borderColor = Colors.white30;
     const Color hintColor = Colors.white60;
-
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
-      decoration: BoxDecoration(
-        color: inputFillColor,
-        borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: borderColor),
-      ),
-      child: DropdownButtonHideUnderline(
-        child: DropdownButton<String>(
-          value: value,
-          isExpanded: true,
-          hint: Text(hint, style: const TextStyle(color: hintColor)),
-          dropdownColor: const Color(0xFF080023), // Fundo do menu
-          icon: const Icon(Icons.arrow_drop_down, color: hintColor),
-          style: const TextStyle(color: Colors.white, fontSize: 16),
-          onChanged: onChanged,
-          items: items.map<DropdownMenuItem<String>>((String displayValue) {
-            return DropdownMenuItem<String>(
-              value: displayValue,
-              child: Text(displayValue),
-            );
-          }).toList(),
+    
+    // Usando um Container com Row para simular o prefixIcon do InputDecoration
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        if (label.isNotEmpty) Text(label, style: const TextStyle(color: hintColor, fontSize: 12)),
+        Container(
+          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
+          decoration: BoxDecoration(
+            color: inputFillColor,
+            borderRadius: BorderRadius.circular(12),
+            border: Border.all(color: borderColor),
+          ),
+          child: Row(
+            children: [
+              if (icon != null) Padding(
+                padding: const EdgeInsets.only(right: 8.0),
+                child: Icon(icon, color: hintColor, size: 20),
+              ),
+              Expanded(
+                child: DropdownButtonHideUnderline(
+                  child: DropdownButton<String>(
+                    value: value,
+                    isExpanded: true,
+                    hint: Text(hint, style: const TextStyle(color: hintColor)),
+                    dropdownColor: const Color(0xFF080023), 
+                    icon: const Icon(Icons.arrow_drop_down, color: hintColor),
+                    style: const TextStyle(color: Colors.white, fontSize: 16),
+                    onChanged: onChanged,
+                    items: items.map<DropdownMenuItem<String>>((String displayValue) {
+                      return DropdownMenuItem<String>(
+                        value: displayValue,
+                        child: Text(displayValue),
+                      );
+                    }).toList(),
+                  ),
+                ),
+              ),
+            ],
+          ),
         ),
-      ),
+      ],
     );
   }
 
-  // Helper para estilizar os campos de texto (copiado dos outros popups)
   InputDecoration _buildInputDecoration({
     required String label,
     required IconData icon,

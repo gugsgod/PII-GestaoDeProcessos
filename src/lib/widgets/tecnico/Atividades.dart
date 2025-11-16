@@ -8,13 +8,30 @@ import 'package:intl/intl.dart';
 import 'package:provider/provider.dart';
 import 'package:src/auth/auth_store.dart';
 
+// NOVO MODELO PARA LOCAIS (Para o Dropdown)
+class LocalFisico {
+  final int id;
+  final String nome;
+  LocalFisico({required this.id, required this.nome});
+  
+  factory LocalFisico.fromJson(Map<String, dynamic> json) {
+    return LocalFisico(
+      id: json['id'] as int,
+      nome: json['nome'] as String,
+    );
+  }
+}
+
+// ... (Restante do arquivo)
+
 // (NOTA: O seu modelo _Atividade já estava 99% correto,
 // só adicionei 'idMovimentacao' para o futuro botão de "Devolver")
 class _Atividade {
-  final String idMovimentacao; // Ex: 'inst-123' ou 'mat-456'
+  final String idMovimentacao; 
   final String nomeMaterial;
-  final String idMaterial; // Ex: 'INST001' ou 'MAT12345'
-  final bool status;
+  final String idMaterial; 
+  final String? lote; // <-- CAMPO ADICIONADO
+  final double quantidadePendente; // <-- CAMPO ADICIONADO
   final String localizacao;
   final DateTime dataRetirada;
   final DateTime dataDevolucao;
@@ -23,30 +40,29 @@ class _Atividade {
     required this.idMovimentacao,
     required this.nomeMaterial,
     required this.idMaterial,
-    required this.status,
+    this.lote, // <-- CAMPO ADICIONADO
+    required this.quantidadePendente, // <-- CAMPO ADICIONADO
     required this.localizacao,
     required this.dataRetirada,
     required this.dataDevolucao,
   });
 
   bool get isAtrasado => dataDevolucao.isBefore(DateTime.now());
-  // Identifica se é instrumento (não começa com 'MAT')
   bool get isInstrumento => !idMaterial.startsWith('MAT');
 
   factory _Atividade.fromJson(Map<String, dynamic> json) {
-    // Helper para parsear datas de forma segura
     DateTime _tryParseDate(String? dateString) {
-      if (dateString == null) return DateTime.now(); // Fallback
-      return DateTime.tryParse(dateString) ?? DateTime.now(); // Fallback
+      if (dateString == null) return DateTime.now();
+      return DateTime.tryParse(dateString) ?? DateTime.now();
     }
 
     return _Atividade(
-      // Adicionado:
       idMovimentacao: json['idMovimentacao']?.toString() ?? 'N/A',
-      // Seus campos:
       nomeMaterial: json['nomeMaterial']?.toString() ?? 'Item desconhecido',
       idMaterial: json['idMaterial']?.toString() ?? 'N/A',
-      status: json['status'] == true, // O SQL sempre manda 'true'
+      lote: json['lote'] as String?, // <-- MAPEAMENTO ADICIONADO
+      // Garante que a quantidade seja lida como double
+      quantidadePendente: (json['quantidade_pendente'] as num?)?.toDouble() ?? 0.0,
       localizacao: json['localizacao']?.toString() ?? 'Base 01',
       dataRetirada: _tryParseDate(json['dataRetirada']),
       dataDevolucao: _tryParseDate(json['dataDevolucao']),
@@ -295,21 +311,22 @@ class _AtividadesRecentesState extends State<AtividadesRecentes> {
 
 class _AtividadeCard extends StatelessWidget {
   final _Atividade atividade;
-  final void Function(_Atividade item) onDevolver; // <--- NOVO CALLBACK
+  final void Function(_Atividade item) onDevolver;
 
   const _AtividadeCard({
     required this.atividade,
-    required this.onDevolver, // <--- NOVO
+    required this.onDevolver,
   });
 
   String _formatarData(DateTime data) {
-    final localData = data.toLocal();
+    // Correção de fuso horário
+    final localData = data.toLocal(); 
     return DateFormat('dd/MM/yyyy \'às\' HH:mm').format(localData);
   }
 
   @override
   Widget build(BuildContext context) {
-    // ... (Lógica de cores e texto) ...
+    // ... (Lógica de cores, isAtrasado, etc.) ...
     final bool isAtrasado = atividade.isAtrasado;
     final bool isInstrumento = atividade.isInstrumento;
     final String buttonText =
@@ -330,10 +347,8 @@ class _AtividadeCard extends StatelessWidget {
         ? Colors.red.shade300
         : Colors.white70;
 
-
     return Container(
-      // ... (Estilo do Container) ...
-       padding: const EdgeInsets.all(16),
+      padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
         color: cardColor,
         borderRadius: BorderRadius.circular(12),
@@ -342,8 +357,8 @@ class _AtividadeCard extends StatelessWidget {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          // ... (Conteúdo do Card - Linhas 1 a 4) ...
-           Row(
+          // --- Linha 1: Título e Tags ---
+          Row(
             children: [
               Text(
                 atividade.nomeMaterial,
@@ -354,48 +369,69 @@ class _AtividadeCard extends StatelessWidget {
                 ),
               ),
               const SizedBox(width: 8),
-              // ... (Tags de ID e Atrasado) ...
-               _TagChip(
+              _TagChip(
                 label: atividade.idMaterial,
                 backgroundColor: Colors.white.withOpacity(0.2),
                 textColor: Colors.white,
               ),
+              // ADICIONADO: Tag de Lote (se existir)
+              if (atividade.lote != null && atividade.lote!.isNotEmpty) ...[
+                const SizedBox(width: 4),
+                _TagChip(
+                  label: "Lote: ${atividade.lote!}",
+                  backgroundColor: Colors.teal.withOpacity(0.2),
+                  textColor: Colors.teal.shade100,
+                ),
+              ],
               const Spacer(),
               if (isAtrasado)
                 const _TagChip(
                   label: "Atrasado",
-                  backgroundColor: Color(0xFFFEE2E2), // Fundo do chip "Atrasado"
-                  textColor: Color(0xFFB91C1C), // Texto do chip "Atrasado"
+                  backgroundColor: Color(0xFFFEE2E2),
+                  textColor: Color(0xFFB91C1C),
                 ),
             ],
           ),
           const SizedBox(height: 16),
+          // --- Linha 2: Quantidade Pendente (se não for instrumento) ---
+          if (!isInstrumento)
+            _InfoLinha(
+              icon: Icons.inventory_2_outlined,
+              title: "Pendente:",
+              value: "${atividade.quantidadePendente} ${atividade.idMaterial}", // Ex: "10.0 PC"
+              valueColor: Colors.white,
+            ),
+          if (!isInstrumento) const SizedBox(height: 8),
+          
+          // --- Linha 3: Localização ---
           _InfoLinha(
             icon: Icons.location_on_outlined,
-            title: "Local:", 
+            title: "Local:",
             value: atividade.localizacao,
-            valueColor: Colors.white, 
+            valueColor: Colors.white,
           ),
           const SizedBox(height: 8),
+          // --- Linha 4: Retirado em ---
           _InfoLinha(
             icon: Icons.calendar_today_outlined,
             title: "Retirado em:",
             value: _formatarData(atividade.dataRetirada),
           ),
           const SizedBox(height: 8),
+          // --- Linha 5: Previsão de Devolução ---
           _InfoLinha(
             icon: Icons.schedule,
             title: "Previsão de devolução:",
             value: _formatarData(atividade.dataDevolucao),
             iconColor: devolucaoColor,
-            valueColor: devolucaoColor, 
+            valueColor: devolucaoColor,
           ),
           const SizedBox(height: 16),
-          // --- Linha 5: Botão Devolver (Corrigido) ---
+          // --- Linha 6: Botão Devolver ---
           SizedBox(
             width: double.infinity,
             child: ElevatedButton.icon(
-              onPressed: () => onDevolver(atividade), // <--- CHAMANDO O CALLBACK
+              onPressed: () => onDevolver(atividade),
               icon: const Icon(Icons.arrow_downward, size: 16),
               label: Text(buttonText),
               style: ElevatedButton.styleFrom(
@@ -595,36 +631,78 @@ class _ModalDevolverMaterial extends StatefulWidget {
 
 class _ModalDevolverMaterialState extends State<_ModalDevolverMaterial> {
   static const String _apiHost = 'http://localhost:8080';
+  
   bool _isLoading = false;
+  bool _isLoadingLocais = true;
   String? _error;
   
-  // Dados de formulário (Mocked: A devolução de material precisa de um dropdown de locais)
-  final TextEditingController _qtController = TextEditingController(text: '1');
-  int? _destinoLocalId = 1; // MOCK: Local 1 (deve vir de um Dropdown/API)
+  final TextEditingController _qtController = TextEditingController(); // Inicia vazio
+  LocalFisico? _selectedDestinoLocal;
+  List<LocalFisico> _locais = [];
+  
+  @override
+  void initState() {
+    super.initState();
+    // Inicia o campo com a quantidade total pendente
+    _qtController.text = widget.atividade.quantidadePendente.toString();
+    _fetchLocais();
+  }
+
+  Future<void> _fetchLocais() async {
+    // ... (lógica de fetch locais continua a mesma) ...
+    final uri = Uri.parse('$_apiHost/locais');
+    final headers = {'Authorization': 'Bearer ${widget.token}'};
+
+    try {
+      final response = await http.get(uri, headers: headers);
+      if (response.statusCode == 200) {
+        final List<dynamic> jsonList = jsonDecode(response.body)['data'] as List<dynamic>;
+        if (mounted) {
+          setState(() {
+            _locais = jsonList.map((j) => LocalFisico.fromJson(j as Map<String, dynamic>)).toList();
+            if (_locais.isNotEmpty) {
+              _selectedDestinoLocal = _locais.first;
+            }
+          });
+        }
+      } else {
+        _error = 'Falha ao carregar locais: ${response.statusCode}';
+      }
+    } catch (e) {
+      _error = 'Erro de rede: $e';
+    } finally {
+      if (mounted) setState(() => _isLoadingLocais = false);
+    }
+  }
 
 
   Future<void> _submit() async {
-    setState(() {
-      _isLoading = true;
-      _error = null;
-    });
+    setState(() { _isLoading = true; _error = null; });
 
     final double? quantidade = double.tryParse(_qtController.text);
     
+    // Validação
     if (quantidade == null || quantidade <= 0) {
       setState(() { _error = 'Quantidade inválida.'; _isLoading = false; });
       return;
     }
-    if (_destinoLocalId == null) {
+    // Validação de saldo (Frontend)
+    if (quantidade > widget.atividade.quantidadePendente) {
+      setState(() { _error = 'Não pode devolver mais do que o pendente (${widget.atividade.quantidadePendente}).'; _isLoading = false; });
+      return;
+    }
+    if (_selectedDestinoLocal == null) {
       setState(() { _error = 'Selecione o local de destino.'; _isLoading = false; });
       return;
     }
 
     try {
+      // CORPO DO JSON ATUALIZADO
       final body = json.encode({
         'idMovimentacao': widget.atividade.idMovimentacao,
         'quantidade': quantidade,
-        'destino_local_id': _destinoLocalId,
+        'destino_local_id': _selectedDestinoLocal!.id,
+        'lote': widget.atividade.lote, // <-- ENVIA O LOTE (pode ser null)
       });
 
       final response = await http.post(
@@ -665,19 +743,49 @@ class _ModalDevolverMaterialState extends State<_ModalDevolverMaterial> {
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            const Text('Informe a quantidade e o local de destino:'),
-            const SizedBox(height: 16),
-            TextField(
-              controller: _qtController,
-              keyboardType: const TextInputType.numberWithOptions(decimal: true),
-              decoration: const InputDecoration(
-                labelText: 'Quantidade a devolver',
-                border: OutlineInputBorder(),
-              ),
+            // Exibe o saldo pendente atual
+            Text(
+              'Pendente: ${widget.atividade.quantidadePendente} (Lote: ${widget.atividade.lote ?? "N/A"})',
+              style: const TextStyle(fontWeight: FontWeight.bold),
             ),
             const SizedBox(height: 16),
-            // NOTE: Na vida real, este seria um Dropdown populado por API
-            Text('Local de Destino (MOCK): Base ID $_destinoLocalId'), 
+            
+            if (_isLoadingLocais) 
+              const Center(child: CircularProgressIndicator()) 
+            else ...[
+              // ... (Campo de Quantidade) ...
+              TextField(
+                controller: _qtController,
+                keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                decoration: const InputDecoration(
+                  labelText: 'Quantidade a devolver',
+                  border: OutlineInputBorder(),
+                ),
+              ),
+              const SizedBox(height: 16),
+              // ... (Dropdown de Local de Destino) ...
+              DropdownButtonFormField<LocalFisico>(
+                value: _selectedDestinoLocal,
+                isExpanded: true,
+                decoration: const InputDecoration(
+                  labelText: 'Local de Destino',
+                  border: OutlineInputBorder(),
+                ),
+                items: _locais.map((local) {
+                  return DropdownMenuItem(
+                    value: local,
+                    child: Text(local.nome),
+                  );
+                }).toList(),
+                onChanged: (local) {
+                  setState(() {
+                    _selectedDestinoLocal = local;
+                  });
+                },
+                hint: const Text('Selecione o local de destino'),
+              ),
+            ],
+            
             if (_error != null) ...[
               const SizedBox(height: 16),
               Text(_error!, style: const TextStyle(color: Colors.red)),
@@ -691,7 +799,7 @@ class _ModalDevolverMaterialState extends State<_ModalDevolverMaterial> {
           child: const Text('Cancelar'),
         ),
         ElevatedButton(
-          onPressed: _isLoading ? null : _submit,
+          onPressed: (_isLoading || _isLoadingLocais || _selectedDestinoLocal == null) ? null : _submit,
           child: _isLoading
               ? const SizedBox(width: 20, height: 20, child: CircularProgressIndicator(strokeWidth: 2))
               : const Text('Confirmar'),

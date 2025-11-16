@@ -18,14 +18,13 @@ import 'dart:io'; // Para SocketException
 // Enum para controlar o seletor
 enum CatalogoTipo { instrumentos, materiais }
 
-// Modelo de dados para /instrumentos (baseado na imagem)
 class InstrumentoCatalogo {
   final String id;
   final String nome;
   final String patrimonio;
   final String local;
   final DateTime proximaCalibracao;
-  final bool disponivel; // 'status' no seu modelo antigo
+  final bool disponivel;
 
   InstrumentoCatalogo({
     required this.id,
@@ -41,22 +40,21 @@ class InstrumentoCatalogo {
   factory InstrumentoCatalogo.fromJson(Map<String, dynamic> json) {
     return InstrumentoCatalogo(
       id: json['id']?.toString() ?? 'N/A',
-      nome: json['descricao'] ?? 'N/A', // Usando 'descricao' como 'nome'
+      nome: json['descricao'] ?? 'N/A',
       patrimonio: json['patrimonio']?.toString() ?? 'N/A',
-      local: json['local_atual_id']?.toString() ?? 'BASE 01', // Mock se nulo
+      local: json['local_atual_nome']?.toString() ?? 'Em uso ou não mapeado',
       proximaCalibracao: DateTime.tryParse(json['proxima_calibracao_em'] ?? '') ?? DateTime.now(),
       disponivel: (json['status']?.toString() ?? 'inativo') == 'ativo',
     );
   }
 }
 
-// Modelo de dados para /materiais (baseado na imagem)
 class MaterialCatalogo {
   final int id;
   final String nome;
   final int matId; // cod_sap
   final String categoria;
-  final bool disponivel; // 'ativo' no seu modelo antigo
+  final bool disponivel;
 
   MaterialCatalogo({
     required this.id,
@@ -172,7 +170,7 @@ class _CatalogoState extends State<Catalogo> {
     try {
       // Executa as duas chamadas de API em paralelo
       final responses = await Future.wait([
-        http.get(Uri.parse('$baseUrl/instrumentos'), headers: headers).timeout(const Duration(seconds: 5)),
+        http.get(Uri.parse('$baseUrl/instrumentos/catalogo'), headers: headers).timeout(const Duration(seconds: 5)),
         http.get(Uri.parse('$baseUrl/materiais'), headers: headers).timeout(const Duration(seconds: 5)),
       ]);
 

@@ -1,11 +1,31 @@
 import 'package:backend/api_utils.dart';
 import 'package:dart_frog/dart_frog.dart';
 import 'package:postgres/postgres.dart';
+import 'package:dart_jsonwebtoken/dart_jsonwebtoken.dart'; // NECESSÁRIO PARA JWT
 
 const int _SAP_MIN = 15000000;
 const int _SAP_MAX = 15999999;
 
 bool _isValidSap(int v) => v >= _SAP_MIN && v <= _SAP_MAX;
+
+// FUNÇÃO _userIdFromContext (ADICIONADA)
+int? _userIdFromContext(RequestContext ctx) {
+  try {
+    final cfg = ctx.read<Map<String, String>>();
+    final secret = cfg['JWT_SECRET'] ?? '';
+    final auth = ctx.request.headers['authorization'];
+    if (auth == null || !auth.startsWith('Bearer ')) return null;
+    final token = auth.substring(7);
+    final jwt = JWT.verify(token, SecretKey(secret));
+    final payload = jwt.payload;
+    final sub = (payload is Map) ? payload['sub'] : null;
+    if (sub is int) return sub;
+    if (sub is num) return sub.toInt();
+    return int.tryParse(sub?.toString() ?? '');
+  } catch (_) {
+    return null;
+  }
+}
 
 Future<Response> onRequest(RequestContext context) async {
   switch (context.request.method) {
@@ -16,6 +36,8 @@ Future<Response> onRequest(RequestContext context) async {
       if (guard != null) return guard;
       return _create(context);
     case HttpMethod.delete:
+      final guard2 = await requireAdmin(context);
+      if (guard2 != null) return guard2;
       return _delete(context);
     default:
       return Response(statusCode: 405);
@@ -105,69 +127,146 @@ Future<Response> _list(RequestContext context) async {
 }
 
 Future<Response> _create(RequestContext context) async {
-  final conn = context.read<Connection>();
+  final connection = context.read<Connection>();
+  // O PROBLEMA FOI CORRIGIDO AQUI
+  final uid = _userIdFromContext(context);
+  if (uid == null) return jsonUnauthorized('Usuário não autenticado ou inválido.');
+
   try {
     final body = await readJson(context);
-
-    final codSap = body['cod_sap'];
+    final codSap = body['cod_sap'] as int?;
     final descricao = (body['descricao'] as String?)?.trim();
     final apelido = (body['apelido'] as String?)?.trim();
     final categoria = (body['categoria'] as String?)?.trim();
     final unidade = (body['unidade'] as String?)?.trim();
+    final ativo = body['ativo'] as bool? ?? true;
 
-    if (codSap is! int) {
-      return jsonBad({'error': 'cod_sap (int) é obrigatório'});
-    }
-    if (!_isValidSap(codSap)) {
-      return jsonUnprocessable(
-          {'error': 'cod_sap fora do range SAP 15000000–15999999'});
+    // NOVOS PARÂMETROS
+    final quantidadeInicial = body['quantidade_inicial']; // num (int/double)
+    final localId = body['local_id'] as int?;
+    final lote = (body['lote'] as String?)?.trim();
+
+    // Validação Básica (Antiga)
+    if (codSap == null || !_isValidSap(codSap)) {
+      return jsonBad({'error': 'cod_sap inválido (fora do range permitido)'});
     }
     if (descricao == null || descricao.isEmpty) {
       return jsonBad({'error': 'descricao é obrigatória'});
     }
+    
+    // NOVA VALIDAÇÃO
+    if (quantidadeInicial is! num || quantidadeInicial <= 0) {
+      return jsonBad({'error': 'quantidade_inicial deve ser um número positivo.'});
+    }
+    if (localId == null) {
+      return jsonBad({'error': 'local_id é obrigatório para entrada inicial de estoque.'});
+    }
 
-    final rows = await conn.execute(
-      Sql.named('''
-        INSERT INTO materiais (cod_sap, descricao, apelido, categoria, unidade, ativo)
-        VALUES (@cod_sap, @descricao, @apelido, @categoria, @unidade, TRUE)
-        RETURNING id, cod_sap, descricao, apelido, categoria, unidade, ativo
-      '''),
-      parameters: {
-        'cod_sap': codSap,
-        'descricao': descricao,
-        'apelido': apelido,
-        'categoria': categoria,
-        'unidade': unidade,
-      },
+    // ==========================================================
+    // ===== INICIA A TRANSAÇÃO =================================
+    // ==========================================================
+    final materialResult = await connection.runTx((tx) async {
+      // 1. CRIA O NOVO MATERIAL
+      final matResult = await tx.execute(
+        Sql.named('''
+          INSERT INTO materiais (cod_sap, descricao, apelido, categoria, unidade, ativo)
+          VALUES (@codSap, @descricao, @apelido, @categoria, @unidade, @ativo)
+          RETURNING id, cod_sap, descricao, apelido, categoria, unidade, ativo
+        '''),
+        parameters: {
+          'codSap': codSap,
+          'descricao': descricao,
+          'apelido': apelido,
+          'categoria': categoria,
+          'unidade': unidade,
+          'ativo': ativo,
+        },
+      );
+      
+      if (matResult.isEmpty) {
+        throw PgException('Erro desconhecido ao inserir material');
+      }
+      final materialId = matResult.first[0] as int; 
+      
+      // 2. CRIA A ENTRADA DE ESTOQUE INICIAL (MOVIMENTAÇÃO)
+      // Operação 'entrada' usa destino_local_id
+      await tx.execute(
+        Sql.named('''
+          INSERT INTO movimentacao_material 
+            (operacao, material_id, destino_local_id, responsavel_id, lote, quantidade)
+          VALUES 
+            ('entrada', @materialId, @localId, @uid, @lote, @quantidadeInicial)
+          RETURNING id
+        '''),
+        parameters: {
+          'materialId': materialId,
+          'localId': localId,
+          'uid': uid,
+          'lote': (lote?.isEmpty ?? true) ? null : lote, // Garante que lote vazio é NULL
+          'quantidadeInicial': quantidadeInicial,
+        },
+      );
+      
+      // 3. ATUALIZA/CRIA O SALDO (UPSERT)
+      final finalLote = (lote?.isEmpty ?? true) ? null : lote;
+
+      // Tenta atualizar o saldo existente
+      final up = await tx.execute(
+        Sql.named('''
+          UPDATE estoque_saldos
+             SET qt_disp = qt_disp + @qtd
+           WHERE material_id=@mid AND local_id=@lid AND lote=@lote
+       RETURNING id
+        '''),
+        parameters: {
+          'mid': materialId, 
+          'lid': localId, 
+          'lote': finalLote, 
+          'qtd': quantidadeInicial
+        },
+      );
+      
+      // Se não atualizou, insere um novo saldo
+      if (up.isEmpty) {
+        await tx.execute(
+          Sql.named('''
+            INSERT INTO estoque_saldos (material_id, local_id, lote, qt_disp, minimo)
+            VALUES (@mid, @lid, @lote, @qtd, 0)
+            RETURNING id
+          '''),
+          parameters: {
+            'mid': materialId, 
+            'lid': localId, 
+            'lote': finalLote, 
+            'qtd': quantidadeInicial
+          },
+        );
+      }
+      
+      // Retorna os dados do material criado no final da transação
+      return matResult.first.toColumnMap();
+    });
+
+    // Se a transação for bem-sucedida, retorna 201 Created
+    return Response.json(
+      statusCode: 201, 
+      body: materialResult,
     );
 
-    final r = rows.first;
-    return jsonCreated({
-      'id': r[0],
-      'cod_sap': r[1],
-      'descricao': r[2],
-      'apelido': r[3],
-      'categoria': r[4],
-      'unidade': r[5],
-      'ativo': r[6],
-    });
-  } on PgException catch (e, st) {
-    // conflito de unique (cod_sap)
-    if (e.message.contains('23505') == true) {
-      return jsonUnprocessable({'error': 'cod_sap já existente'});
-    }
-    print('POST /materiais pg error: $e\n$st');
-    return jsonServer({'error': 'internal'});
+  } on PgException catch (e) {
+    print('POST /materiais pg error: $e');
+    // if (e.code == '23505') { // Código de violação de chave única
+    //    return jsonBad({'error': 'Código SAP já cadastrado.'});
+    // }
+    // Para qualquer outro erro de banco que a transação não tratou (ex: foreign key)
+    return jsonServer({'error': 'Erro no banco de dados. Verifique o local_id e outros campos.'});
   } catch (e, st) {
     print('POST /materiais error: $e\n$st');
-    return jsonServer({'error': 'internal'});
+    return jsonServer({'error': 'Erro interno ao criar material.'});
   }
 }
 
 Future<Response> _delete(RequestContext context) async {
-  final guard = await requireAdmin(context);
-  if (guard != null) return guard;
-
   final connection = context.read<Connection>();
 
   Map<String, dynamic> body;
