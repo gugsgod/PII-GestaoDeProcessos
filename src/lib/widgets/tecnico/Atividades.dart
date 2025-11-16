@@ -26,7 +26,7 @@ class LocalFisico {
 
 // (NOTA: O seu modelo _Atividade já estava 99% correto,
 // só adicionei 'idMovimentacao' para o futuro botão de "Devolver")
-class _Atividade {
+class Atividade {
   final String idMovimentacao; 
   final String nomeMaterial;
   final String idMaterial; 
@@ -36,7 +36,7 @@ class _Atividade {
   final DateTime dataRetirada;
   final DateTime dataDevolucao;
 
-  _Atividade({
+  Atividade({
     required this.idMovimentacao,
     required this.nomeMaterial,
     required this.idMaterial,
@@ -50,13 +50,13 @@ class _Atividade {
   bool get isAtrasado => dataDevolucao.isBefore(DateTime.now());
   bool get isInstrumento => !idMaterial.startsWith('MAT');
 
-  factory _Atividade.fromJson(Map<String, dynamic> json) {
+  factory Atividade.fromJson(Map<String, dynamic> json) {
     DateTime _tryParseDate(String? dateString) {
       if (dateString == null) return DateTime.now();
       return DateTime.tryParse(dateString) ?? DateTime.now();
     }
 
-    return _Atividade(
+    return Atividade(
       idMovimentacao: json['idMovimentacao']?.toString() ?? 'N/A',
       nomeMaterial: json['nomeMaterial']?.toString() ?? 'Item desconhecido',
       idMaterial: json['idMaterial']?.toString() ?? 'N/A',
@@ -73,11 +73,22 @@ class _Atividade {
 class AtividadesRecentes extends StatefulWidget {
   final ScrollController scrollController;
   final bool isDesktop;
+  
+  // NOVOS PARÂMETROS
+  final bool isLoading;
+  final String? error;
+  final List<Atividade> atividades;
+  final VoidCallback onReload; // Função para recarregar
 
   const AtividadesRecentes({
     super.key,
     required this.scrollController,
     required this.isDesktop,
+    // NOVOS
+    required this.isLoading,
+    this.error,
+    required this.atividades,
+    required this.onReload,
   });
 
   @override
@@ -86,88 +97,21 @@ class AtividadesRecentes extends StatefulWidget {
 
 class _AtividadesRecentesState extends State<AtividadesRecentes> {
   // O seu _apiHost estava faltando, adicionei
-  static const String _apiHost = 'http://localhost:8080';
-
-  Future<List<_Atividade>>? _future;
-
-  @override
-  void initState() {
-    super.initState();
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      _carregar();
-    });
+  void _onDevolucaoSuccess() {
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(
+        content: Text('Devolução registrada com sucesso!'),
+        backgroundColor: Colors.green,
+      ),
+    );
+    // Chama a função de recarregar do PAI
+    widget.onReload();
   }
-
-  // A sua função _carregar já estava correta
-  void _carregar() {
+  
+  void _handleDevolucao(Atividade item) {
     final auth = context.read<AuthStore>();
     final token = auth.token;
-
-    if (token == null || !auth.isAuthenticated) {
-      setState(() {
-        _future = Future.error(
-          'Token ausente (faça login novamente).',
-        );
-      });
-      return;
-    }
-
-    setState(() {
-      _future = _fetchRecent(token);
-    });
-  }
-
-  // ==========================================================
-  // ============= ATUALIZAÇÃO PRINCIPAL AQUI =================
-  // ==========================================================
-  Future<List<_Atividade>> _fetchRecent(String token) async {
-    // 1. Define a URL e os Headers
-    final uri = Uri.parse('$_apiHost/movimentacoes/pendentes');
-    final headers = {
-      'Authorization': 'Bearer $token',
-    };
-
-    try {
-      // 2. Faz a chamada GET
-      final response = await http.get(uri, headers: headers)
-          .timeout(const Duration(seconds: 5));
-
-      if (!mounted) return [];
-
-      // 3. Processa a resposta
-      if (response.statusCode == 200) {
-        // Usa utf8.decode para evitar problemas com acentuação
-        final List<dynamic> data = json.decode(utf8.decode(response.bodyBytes));
-        
-        // 4. Converte o JSON para a lista de Atividades
-        return data.map((json) => _Atividade.fromJson(json)).toList();
-      } else {
-        // Erro do servidor
-        throw Exception('Falha ao carregar pendências: ${response.statusCode}');
-      }
-    } on TimeoutException {
-      throw Exception('Servidor não respondeu (Timeout).');
-    } on SocketException {
-      throw Exception('Não foi possível conectar ao servidor.');
-    } catch (e) {
-      // Re-joga o erro para o FutureBuilder pegar
-      throw Exception('Erro: ${e.toString().replaceAll("Exception: ", "")}');
-    }
-  }
-  // ==========================================================
-  // =================== FIM DA ATUALIZAÇÃO =====================
-  // ==========================================================
-
-  void _handleDevolucao(_Atividade item) {
-    final auth = context.read<AuthStore>();
-    final token = auth.token;
-
-    if (token == null) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Erro: Token de autenticação ausente.')),
-      );
-      return;
-    }
+    if (token == null) return;
 
     if (item.isInstrumento) {
       showDialog(
@@ -188,17 +132,6 @@ class _AtividadesRecentesState extends State<AtividadesRecentes> {
         ),
       );
     }
-  }
-
-  void _onDevolucaoSuccess() {
-    ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(
-        content: Text('Devolução registrada com sucesso!'),
-        backgroundColor: Colors.green,
-      ),
-    );
-    // Recarrega a lista para remover o item devolvido
-    _carregar();
   }
 
   @override
@@ -227,91 +160,95 @@ class _AtividadesRecentesState extends State<AtividadesRecentes> {
             color: const Color.fromARGB(209, 255, 255, 255),
             borderRadius: BorderRadius.circular(16),
           ),
-          child: FutureBuilder<List<_Atividade>>(
-            future: _future,
-            builder: (context, snapshot) {
-              if (snapshot.connectionState == ConnectionState.waiting ||
-                  _future == null) {
-                return const Center(
-                  child: CircularProgressIndicator(color: Colors.black),
-                );
-              }
-
-              if (snapshot.hasError) {
-                return Padding(
-                  padding: const EdgeInsets.all(16.0),
-                  child: Center(
-                    child: Text(
-                      'Erro ao carregar atividades: ${snapshot.error}',
-                      style: const TextStyle(color: Colors.redAccent),
-                      textAlign: TextAlign.center,
-                    ),
-                  ),
-                );
-              }
-
-              final atividades = snapshot.data ?? [];
-
-              if (atividades.isEmpty) {
-                return Center(
-                  child: Column(
-                    mainAxisAlignment: MainAxisAlignment.center,
-                    children: [
-                      Container(
-                        padding: const EdgeInsets.all(16),
-                        decoration: BoxDecoration(
-                          color: Colors.green.withOpacity(0.15),
-                          shape: BoxShape.circle,
-                        ),
-                        child: Icon(
-                          Icons.check_circle_outline, // Ícone de "tudo certo"
-                          color: Colors.green.shade300,
-                          size: 40,
-                        ),
-                      ),
-                      const SizedBox(height: 24),
-                      const Text(
-                        "Tudo em ordem!",
-                        style: TextStyle(
-                          color: Colors.black,
-                          fontSize: 18,
-                          fontWeight: FontWeight.bold
-                        ),
-                      ),
-                      const SizedBox(height: 8),
-                      const Text(
-                        "Você não possui instrumentos ou materiais pendentes.",
-                        style: TextStyle(
-                          color: Colors.blueGrey,
-                          fontSize: 15,
-                        ),
-                        textAlign: TextAlign.center,
-                        overflow: TextOverflow.visible,
-                      ),
-                    ],
-                  ),
-                );
-              }
-              return ListView.separated(
-                controller: widget.scrollController,
-                padding: const EdgeInsets.all(12),
-                itemCount: atividades.length,
-                separatorBuilder: (context, index) => const SizedBox(height: 12),
-                itemBuilder: (context, index) {
-                  return _AtividadeCard(atividade:  atividades[index], onDevolver: _handleDevolucao);
-                },
-              );
-            },
-          ),
+          child: _buildContent(),
         ),
       ],
+    );
+  }
+
+  Widget _buildContent() {
+    if (widget.isLoading) {
+      return const Center(
+        child: CircularProgressIndicator(color: Colors.black),
+      );
+    }
+
+    if (widget.error != null) {
+      return Padding(
+        padding: const EdgeInsets.all(16.0),
+        child: Center(
+          child: Text(
+            'Erro ao carregar atividades: ${widget.error}',
+            style: const TextStyle(color: Colors.redAccent),
+            textAlign: TextAlign.center,
+          ),
+        ),
+      );
+    }
+
+    final atividades = widget.atividades;
+
+    if (atividades.isEmpty) {
+      // ... (Widget de 'Tudo em ordem!')
+      return Center(
+        child: Column(
+          // ... (código do 'Tudo em ordem') ...
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Container(
+              padding: const EdgeInsets.all(16),
+              decoration: BoxDecoration(
+                color: Colors.green.withOpacity(0.15),
+                shape: BoxShape.circle,
+              ),
+              child: Icon(
+                Icons.check_circle_outline, // Ícone de "tudo certo"
+                color: Colors.green.shade300,
+                size: 40,
+              ),
+            ),
+            const SizedBox(height: 24),
+            const Text(
+              "Tudo em ordem!",
+              style: TextStyle(
+                color: Colors.black,
+                fontSize: 18,
+                fontWeight: FontWeight.bold
+              ),
+            ),
+            const SizedBox(height: 8),
+            const Text(
+              "Você não possui instrumentos ou materiais pendentes.",
+              style: TextStyle(
+                color: Colors.blueGrey,
+                fontSize: 15,
+              ),
+              textAlign: TextAlign.center,
+              overflow: TextOverflow.visible,
+            ),
+          ],
+        ),
+      );
+    }
+    
+    return ListView.separated(
+      controller: widget.scrollController,
+      padding: const EdgeInsets.all(12),
+      itemCount: atividades.length,
+      separatorBuilder: (context, index) => const SizedBox(height: 12),
+      itemBuilder: (context, index) {
+        return _AtividadeCard(
+          atividade: atividades[index], 
+          onDevolver: _handleDevolucao // Passa o handler de devolução
+        );
+      },
     );
   }
 }
 
 class _AtividadeCard extends StatelessWidget {
-  final _Atividade atividade;
-  final void Function(_Atividade item) onDevolver;
+  final Atividade atividade;
+  final void Function(Atividade item) onDevolver;
 
   const _AtividadeCard({
     required this.atividade,
@@ -334,8 +271,8 @@ class _AtividadeCard extends StatelessWidget {
     
     // Define a cor do card (vermelho se atrasado)
     final Color cardColor = isAtrasado
-        ? Colors.red.withOpacity(0.08)
-        : Colors.white.withOpacity(0.1);
+        ? const Color(0xFFFFF1F2) // Um vermelho bem claro (Tailwind red-50)
+        : Colors.white; // Branco sólido
     
     // Define a cor da borda (vermelha se atrasado)
     final Color borderColor = isAtrasado
@@ -344,8 +281,8 @@ class _AtividadeCard extends StatelessWidget {
         
     // Define a cor do texto de devolução (vermelho se atrasado)
     final Color devolucaoColor = isAtrasado
-        ? Colors.red.shade300
-        : Colors.white70;
+        ? Colors.red.shade600 // Vermelho mais escuro para texto
+        : Colors.black54;
 
     return Container(
       padding: const EdgeInsets.all(16),
@@ -363,7 +300,7 @@ class _AtividadeCard extends StatelessWidget {
               Text(
                 atividade.nomeMaterial,
                 style: const TextStyle(
-                  color: Colors.white,
+                  color: Colors.black,
                   fontSize: 18,
                   fontWeight: FontWeight.bold,
                 ),
@@ -371,8 +308,8 @@ class _AtividadeCard extends StatelessWidget {
               const SizedBox(width: 8),
               _TagChip(
                 label: atividade.idMaterial,
-                backgroundColor: Colors.white.withOpacity(0.2),
-                textColor: Colors.white,
+                backgroundColor: Colors.black.withOpacity(0.1),
+                textColor: Colors.black,
               ),
               // ADICIONADO: Tag de Lote (se existir)
               if (atividade.lote != null && atividade.lote!.isNotEmpty) ...[
@@ -399,7 +336,7 @@ class _AtividadeCard extends StatelessWidget {
               icon: Icons.inventory_2_outlined,
               title: "Pendente:",
               value: "${atividade.quantidadePendente} ${atividade.idMaterial}", // Ex: "10.0 PC"
-              valueColor: Colors.white,
+              valueColor: Colors.black,
             ),
           if (!isInstrumento) const SizedBox(height: 8),
           
@@ -408,7 +345,7 @@ class _AtividadeCard extends StatelessWidget {
             icon: Icons.location_on_outlined,
             title: "Local:",
             value: atividade.localizacao,
-            valueColor: Colors.white,
+            valueColor: Colors.black,
           ),
           const SizedBox(height: 8),
           // --- Linha 4: Retirado em ---
@@ -499,7 +436,7 @@ class _InfoLinha extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    const Color defaultColor = Colors.white70; // Cor padrão
+    const Color defaultColor = Colors.black; // Cor padrão
     
     return Row(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -533,7 +470,7 @@ class _InfoLinha extends StatelessWidget {
 
 // --- MODAL DEVOLVER INSTRUMENTO (Ação Direta) ---
 class _ModalDevolverInstrumento extends StatefulWidget {
-  final _Atividade atividade;
+  final Atividade atividade;
   final String token;
   final VoidCallback onSuccess;
 
@@ -615,7 +552,7 @@ class _ModalDevolverInstrumentoState extends State<_ModalDevolverInstrumento> {
 
 // --- MODAL DEVOLVER MATERIAL (Requer Quantidade e Local de Destino) ---
 class _ModalDevolverMaterial extends StatefulWidget {
-  final _Atividade atividade;
+  final Atividade atividade;
   final String token;
   final VoidCallback onSuccess;
 

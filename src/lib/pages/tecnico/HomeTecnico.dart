@@ -2,44 +2,18 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:src/auth/auth_store.dart';
 import 'package:src/widgets/admin/home_admin/dashboard_card.dart';
-import 'package:src/widgets/tecnico/Atividades.dart';
+import 'package:src/widgets/tecnico/Atividades.dart' show AtividadesRecentes, Atividade;
 import 'package:src/widgets/tecnico/home_tecnico/AlertasTecnico.dart';
 import '../admin/animated_network_background.dart';
 import '../../widgets/tecnico/home_tecnico/tecnico_drawer.dart';
 import '../../widgets/admin/home_admin/update_status_bar.dart';
+import 'package:http/http.dart' as http;
+import 'dart:convert';
+import 'dart:async';
+import 'dart:io';
 
 const String apiBaseUrl = 'http://localhost:8080';
 
-class Atividades {
-  final String material;
-  final String idMaterial;
-  final bool status;
-  final String local;
-  final DateTime dataRetirada;
-  final DateTime dataDevolucao;
-
-  Atividades({
-    required this.material,
-    required this.idMaterial,
-    required this.status,
-    required this.local,
-    required this.dataRetirada,
-    required this.dataDevolucao,
-  });
-
-  factory Atividades.fromJson(Map<String, dynamic> json) {
-    // TODO: Implementar resto do factory
-
-    return Atividades(
-      material: json['material'],
-      idMaterial: json['idMaterial'],
-      status: json['status'],
-      local: json['local'],
-      dataRetirada: DateTime.parse(json['dataRetirada']),
-      dataDevolucao: DateTime.parse(json['dataDevolucao']),
-    );
-  }
-}
 
 class HomeTecnico extends StatefulWidget {
   const HomeTecnico({Key? key}) : super(key: key);
@@ -60,7 +34,7 @@ class _HomeTecnicoState extends State<HomeTecnico> {
 
   bool _loadingAtividades = true;
   String? _atividadesError;
-  List<Atividades> _atividadesRecentes = [];
+  List<Atividade> _atividadesRecentes = [];
 
   final ScrollController _scrollController = ScrollController();
   bool _initialized = false;
@@ -71,17 +45,110 @@ class _HomeTecnicoState extends State<HomeTecnico> {
     _lastUpdated = DateTime.now();
   }
 
-  Future<void> _loadStats() async {
-    // TODO: Implementar fetch de métricas
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    // Garante que os dados sejam carregados apenas uma vez
+    if (!_initialized) {
+      _atualizaDados();
+      _initialized = true;
+    }
   }
 
-  Future<void> _fetchAtividades() async {
-    // TODO: Implementar fetch de atividades
+  Future<void> _atualizaDados() async {
+    // 1. Inicia o estado de loading
+    setState(() {
+      _loadingStats = true;
+      _loadingAtividades = true;
+      _atividadesError = null;
+      _lastUpdated = DateTime.now();
+    });
+
+    final auth = context.read<AuthStore>();
+    final token = auth.token;
+    if (token == null) {
+      setState(() {
+        _atividadesError = 'Usuário não autenticado.';
+        _loadingStats = false;
+        _loadingAtividades = false;
+      });
+      return;
+    }
+
+    // 2. Chama a API de pendências
+    final uri = Uri.parse('$apiBaseUrl/movimentacoes/pendentes');
+    final headers = {'Authorization': 'Bearer $token'};
+
+    try {
+      final response = await http.get(uri, headers: headers).timeout(const Duration(seconds: 5));
+
+      if (!mounted) return;
+
+      if (response.statusCode == 200) {
+        final List<dynamic> data = json.decode(utf8.decode(response.bodyBytes));
+        final atividades = data.map((json) => Atividade.fromJson(json)).toList();
+        
+        // 3. CALCULA OS STATS (O PONTO CHAVE)
+        _calcularStatsDaLista(atividades);
+        
+        setState(() {
+          _atividadesRecentes = atividades;
+          _loadingStats = false;
+          _loadingAtividades = false;
+        });
+      } else {
+        throw Exception('Falha ao carregar pendências: ${response.statusCode}');
+      }
+    } catch (e) {
+      if (mounted) {
+        final errorMsg = e.toString().replaceAll("Exception: ", "");
+        setState(() {
+          _atividadesError = errorMsg;
+          _loadingStats = false;
+          _loadingAtividades = false;
+        });
+      }
+    }
   }
 
-  void _atualizaDados() {
-    _fetchAtividades();
-    _loadStats();
+  void _calcularStatsDaLista(List<Atividade> atividades) {
+    int matCount = 0;
+    int instCount = 0;
+    int alertCount = 0;
+
+    for (var item in atividades) {
+      if (item.isInstrumento) {
+        instCount++;
+      } else {
+        matCount++;
+      }
+      
+      if (item.isAtrasado) {
+        alertCount++;
+      }
+    }
+    
+    // Atualiza as variáveis de estado
+    _materiaisEmUso = matCount;
+    _instrumentosEmUso = instCount;
+    _devolucoesPendentes = matCount + instCount; // Total
+    _alertasAtivos = alertCount;
+  }
+
+  Widget _buildAtividadesSection(bool isDesktop) {
+    // (O if _loadingAtividades, if _atividadesError 
+    //  foi movido para dentro do widget AtividadesRecentes)
+    
+    // Agora apenas passamos os dados para o filho
+    return AtividadesRecentes(
+      scrollController: _scrollController,
+      isDesktop: isDesktop,
+      // Passando os dados do Pai
+      isLoading: _loadingAtividades,
+      error: _atividadesError,
+      atividades: _atividadesRecentes,
+      onReload: _atualizaDados, // Passa a função de recarregar
+    );
   }
 
   @override
@@ -159,53 +226,6 @@ class _HomeTecnicoState extends State<HomeTecnico> {
           ),
         ),
       ),
-    );
-  }
-
-  Widget _buildAtividadesSection(bool isDesktop) {
-    _loadingAtividades = false; // Remover quando implementar fetch real 
-    if (_loadingAtividades) {
-      return const Center(
-        child: CircularProgressIndicator(color: Colors.white),
-      );
-    }
-
-    if (_atividadesError != null) {
-      return Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          const Text(
-            'Minhas Atividades',
-            style: TextStyle(
-              color: Colors.white,
-              fontSize: 22,
-              fontWeight: FontWeight.bold,
-            ),
-          ),
-          const SizedBox(height: 12),
-          Text(
-            _atividadesError!,
-            style: const TextStyle(color: Colors.redAccent),
-          ),
-          const SizedBox(height: 12),
-          ElevatedButton(
-            onPressed: _fetchAtividades,
-            child: const Text('Tentar Novamente'),
-          ),
-        ],
-      );
-    }
-
-    // if (_atividadesRecentes.isEmpty) {
-    //  return const Text(
-    //      'Nenhuma atividade recente encontrada.',
-    //      style: TextStyle(color: Colors.white70, fontSize: 16),
-    //  );
-    // }
-
-    return AtividadesRecentes(
-      scrollController: _scrollController,
-      isDesktop: isDesktop,
     );
   }
 
