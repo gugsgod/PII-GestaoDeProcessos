@@ -167,7 +167,64 @@ Future<Response> _post(RequestContext context) async {
 }
 
 Future<Response> _patch(RequestContext context) async {
-  return Response(statusCode: 501, body: 'Not Implemented');
+  // 1. Verificação de Segurança Básica (Token existe?)
+  final authHeader = context.request.headers['authorization'];
+  if (authHeader == null || !authHeader.startsWith('Bearer ')) {
+    return Response(statusCode: 401, body: 'Token inválido ou ausente');
+  }
+
+  final connection = context.read<Connection>();
+  
+  try {
+    // 2. Lê e valida o corpo da requisição
+    final body = await context.request.json() as Map<String, dynamic>;
+    final id = body['id'] as int?;
+    final novaDataStr = body['proxima_calibracao_em'] as String?;
+
+    if (id == null) {
+      return Response(statusCode: 400, body: 'O campo "id" (int) é obrigatório.');
+    }
+    if (novaDataStr == null) {
+      return Response(statusCode: 400, body: 'O campo "proxima_calibracao_em" é obrigatório.');
+    }
+
+    final novaData = DateTime.tryParse(novaDataStr);
+    if (novaData == null) {
+      return Response(statusCode: 400, body: 'Formato de data inválido.');
+    }
+
+    // 3. Executa a atualização no banco
+    // Forçamos UTC para evitar problemas de fuso horário
+    final result = await connection.execute(
+      Sql.named('''
+        UPDATE instrumentos
+        SET proxima_calibracao_em = @novaData,
+            updated_at = NOW()
+        WHERE id = @id
+        RETURNING id, proxima_calibracao_em
+      '''),
+      parameters: {
+        'id': id,
+        'novaData': novaData.toUtc(),
+      },
+    );
+
+    if (result.isEmpty) {
+      return Response(statusCode: 404, body: 'Instrumento não encontrado.');
+    }
+
+    return Response.json(
+      statusCode: 200,
+      body: {'message': 'Calibração atualizada com sucesso!'},
+    );
+
+  } on PgException catch (e) {
+    print('Erro de banco no PATCH: $e');
+    return Response(statusCode: 500, body: 'Erro de banco de dados: ${e.message}');
+  } catch (e, st) {
+    print('Erro interno no PATCH: $e\n$st');
+    return Response(statusCode: 500, body: 'Erro interno ao atualizar calibração.');
+  }
 }
 
 Future<Response> _delete(RequestContext context) async {

@@ -4,13 +4,33 @@ import 'package:backend/api_utils.dart';
 
 Future<Response> onRequest(RequestContext context) async {
   if (context.request.method != HttpMethod.get) {
-    return Response(statusCode: 405); // Método não permitido
+    return Response(statusCode: 405);
   }
   
   final connection = context.read<Connection>();
+  final qp = context.request.uri.queryParameters;
+  
+  // Filtros
+  final bool filtroAtivo = qp['ativo'] == 'true';
+  final bool filtroVencidos = qp['vencidos'] == 'true'; // NOVO FILTRO
+
+  final whereClauses = <String>[];
+  
+  if (filtroAtivo) {
+    whereClauses.add('i.ativo = true');
+  }
+  
+  // LÓGICA DE NEGÓCIO: Se pedir vencidos, filtra pela data menor que agora
+  if (filtroVencidos) {
+    whereClauses.add('i.proxima_calibracao_em < NOW()');
+  }
+
+  String whereSql = '';
+  if (whereClauses.isNotEmpty) {
+    whereSql = 'WHERE ${whereClauses.join(' AND ')}';
+  }
   
   try {
-    // Query otimizada para o catálogo: inclui o NOME do local via JOIN
     final rows = await connection.execute(
       '''
         SELECT 
@@ -19,13 +39,14 @@ Future<Response> onRequest(RequestContext context) async {
           i.local_atual_id, 
           i.responsavel_atual_id, i.proxima_calibracao_em, 
           i.ativo, i.created_at, i.updated_at,
-          lf.nome AS local_atual_nome -- NOVO: Nome do Local
+          lf.nome AS local_atual_nome
         FROM instrumentos i
-        LEFT JOIN locais_fisicos lf ON i.local_atual_id = lf.id; -- JOIN para obter o nome
+        LEFT JOIN locais_fisicos lf ON i.local_atual_id = lf.id
+        $whereSql
+        ORDER BY i.proxima_calibracao_em ASC
       '''
     );
 
-    // Mapeamento dos resultados
     final data = rows.map((r) => {
       'id': r[0],
       'patrimonio': r[1],
@@ -38,7 +59,7 @@ Future<Response> onRequest(RequestContext context) async {
       'ativo': r[8],
       'created_at': (r[9] as DateTime?)?.toIso8601String(),
       'updated_at': (r[10] as DateTime?)?.toIso8601String(),
-      'local_atual_nome': r[11], // O nome do local (índice 11)
+      'local_atual_nome': r[11],
     }).toList();
 
     return jsonOk(data);

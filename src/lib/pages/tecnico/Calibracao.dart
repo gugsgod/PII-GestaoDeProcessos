@@ -9,6 +9,8 @@ import 'package:src/auth/auth_store.dart';
 import 'package:src/pages/admin/animated_network_background.dart';
 import 'package:src/widgets/tecnico/home_tecnico/tecnico_drawer.dart';
 
+const String _apiHost = 'http://localhost:8080';
+
 class _InstrumentoCalibracao {
   final int id;
   final String nome;
@@ -74,35 +76,55 @@ class CalibracaoState extends State<Calibracao> {
   }
 
   Future<void> _fetchData() async {
-    setState(() {
-      _isLoading = true;
-      _error = null;
-    });
+    setState(() { _isLoading = true; _error = null; });
+
+    final auth = context.read<AuthStore>();
+    final token = auth.token;
+
+    if (token == null) {
+      setState(() { _isLoading = false; _error = "Token inválido."; });
+      return;
+    }
 
     try {
-      // TODO: Implementar chamada de API real
-      // 1. Obter token do AuthStore
-      // final token = context.read<AuthStore>().token;
-      // 2. Chamar GET /instrumentos/catalogo (ou /instrumentos)
-      // final response = await http.get(Uri.parse('...'), headers: {...});
-      // 3. Decodificar e fazer o map
-      // final data = json.decode(utf8.decode(response.bodyBytes));
-      // _instrumentos = data.map((json) => _InstrumentoCalibracao.fromJson(json)).toList();
+      // Reutilizamos o endpoint do catálogo que já traz o JOIN com locais
+      // Filtramos ?ativo=true para trazer apenas instrumentos ativos no sistema
+      final uri = Uri.parse('$_apiHost/instrumentos/catalogo').replace(
+        queryParameters: {
+            'ativo': 'true',
+            'vencidos': 'true',
+        },
+      );
+      
+      final response = await http.get(
+        uri, 
+        headers: {'Authorization': 'Bearer $token'}
+      ).timeout(const Duration(seconds: 10));
 
-      // Por agora, usamos mock
-      await Future.delayed(const Duration(milliseconds: 500));
-      _instrumentos = _getMockData();
+      if (response.statusCode == 200) {
+        final List<dynamic> data = json.decode(utf8.decode(response.bodyBytes));
+        
+        if (mounted) {
+          setState(() {
+            _instrumentos = data.map((json) => _InstrumentoCalibracao.fromJson(json)).toList();
+            // Ordena: Vencidos primeiro
+            _instrumentos.sort((a, b) => a.proximaCalibracao.compareTo(b.proximaCalibracao));
+          });
+        }
+      } else {
+        throw Exception('Erro ${response.statusCode}: Falha ao buscar instrumentos.');
+      }
     } catch (e) {
       if (mounted) {
         setState(() {
-          _error = "Falha ao carregar dados: ${e.toString()}";
+          _error = "Falha ao carregar: ${e.toString().replaceAll('Exception: ', '')}";
         });
       }
     } finally {
       if (mounted) {
         setState(() {
           _isLoading = false;
-          _filtrarDados(); // Aplica o filtro inicial
+          _filtrarDados();
         });
       }
     }
@@ -132,16 +154,16 @@ class CalibracaoState extends State<Calibracao> {
       builder: (context) {
         return _ModalAtualizarCalibracao(
           item: item,
+          token: context.read<AuthStore>().token!,
           onSuccess: (novaData) {
-            // Callback de sucesso
             Navigator.of(context).pop();
             ScaffoldMessenger.of(context).showSnackBar(
               SnackBar(
-                content: Text('Calibração do ${item.patrimonio} atualizada para ${DateFormat('dd/MM/yyyy').format(novaData)}!'),
+                content: Text('Calibração atualizada com sucesso!'),
                 backgroundColor: Colors.green,
               ),
             );
-            _reloadData(); // Recarrega a lista
+            _reloadData(); // Recarrega a lista do servidor
           },
         );
       },
@@ -417,10 +439,12 @@ class _CalibracaoCard extends StatelessWidget {
 // 
 class _ModalAtualizarCalibracao extends StatefulWidget {
   final _InstrumentoCalibracao item;
+  final String token; 
   final Function(DateTime) onSuccess;
 
   const _ModalAtualizarCalibracao({
     required this.item,
+    required this.token,
     required this.onSuccess,
   });
 
@@ -429,20 +453,17 @@ class _ModalAtualizarCalibracao extends StatefulWidget {
 }
 
 class _ModalAtualizarCalibracaoState extends State<_ModalAtualizarCalibracao> {
-  DateTime _novaData = DateTime.now().add(const Duration(days: 365)); // Padrão de 1 ano
+  static const String _apiHost = 'http://localhost:8080';
+  DateTime _novaData = DateTime.now().add(const Duration(days: 365));
   bool _ciente = false;
   bool _isLoading = false;
   String? _error;
-
-  // Controller para o campo de data (que abre o DatePicker)
   late TextEditingController _dateController;
 
   @override
   void initState() {
     super.initState();
-    _dateController = TextEditingController(
-      text: DateFormat('dd/MM/yyyy').format(_novaData),
-    );
+    _dateController = TextEditingController(text: DateFormat('dd/MM/yyyy').format(_novaData));
   }
 
   @override
@@ -455,8 +476,8 @@ class _ModalAtualizarCalibracaoState extends State<_ModalAtualizarCalibracao> {
     final DateTime? picked = await showDatePicker(
       context: context,
       initialDate: _novaData,
-      firstDate: DateTime.now(), // Só pode calibrar para o futuro
-      lastDate: DateTime.now().add(const Duration(days: 365 * 5)), // Limite de 5 anos
+      firstDate: DateTime.now(),
+      lastDate: DateTime.now().add(const Duration(days: 365 * 5)),
     );
     if (picked != null && picked != _novaData) {
       setState(() {
@@ -479,31 +500,51 @@ class _ModalAtualizarCalibracaoState extends State<_ModalAtualizarCalibracao> {
       _error = null;
     });
 
-    // TODO: Implementar chamada de API
-    // 1. Obter token
-    // final token = context.read<AuthStore>().token;
-    // 2. Montar body
-    // final body = json.encode({'proxima_calibracao_em': _novaData.toIso8601String()});
-    // 3. Fazer o PATCH
-    // final response = await http.patch(
-    //   Uri.parse('$apiBaseUrl/instrumentos/${widget.item.id}/calibracao'),
-    //   headers: {'Authorization': 'Bearer $token', 'Content-Type': 'application/json'},
-    //   body: body,
-    // );
-    
-    // Simulação de sucesso
-    await Future.delayed(const Duration(milliseconds: 500));
-    final bool success = true; // Simula sucesso
+    try {
+      // Prepara os dados para o Backend
+      // Usamos o endpoint raiz /instrumentos com o método PATCH
+      final uri = Uri.parse('$_apiHost/instrumentos'); 
+      final body = json.encode({
+        'id': widget.item.id, // ID do instrumento
+        'proxima_calibracao_em': _novaData.toIso8601String(),
+      });
 
-    if (success) {
-      widget.onSuccess(_novaData);
-    } else {
-      // if (mounted) {
-      //   setState(() {
-      //     _error = "Falha ao atualizar a data.";
-      //     _isLoading = false;
-      //   });
-      // }
+      final response = await http.patch(
+        uri,
+        headers: {
+          'Authorization': 'Bearer ${widget.token}',
+          'Content-Type': 'application/json',
+        },
+        body: body,
+      );
+
+      if (response.statusCode == 200) {
+        // Sucesso!
+        widget.onSuccess(_novaData); // Fecha o modal e avisa a tela pai
+      } else {
+        // Tratamento de erro
+        String msgErro = 'Falha ao atualizar';
+        try {
+          final errData = json.decode(utf8.decode(response.bodyBytes));
+          msgErro = errData['body'] ?? errData['error'] ?? response.body;
+        } catch (_) {
+          msgErro = response.body;
+        }
+        
+        if (mounted) {
+          setState(() {
+            _error = "Erro ${response.statusCode}: $msgErro";
+            _isLoading = false;
+          });
+        }
+      }
+    } catch (e) {
+      if (mounted) {
+        setState(() {
+          _error = "Erro de conexão: $e";
+          _isLoading = false;
+        });
+      }
     }
   }
 
@@ -522,131 +563,49 @@ class _ModalAtualizarCalibracaoState extends State<_ModalAtualizarCalibracao> {
             const SizedBox(height: 16),
             const Divider(),
             const SizedBox(height: 16),
-            const Text("Selecione a nova data de vencimento da calibração:", style: TextStyle(fontWeight: FontWeight.bold)),
+            const Text("Nova data de vencimento:", style: TextStyle(fontWeight: FontWeight.bold)),
             const SizedBox(height: 16),
             TextField(
               controller: _dateController,
               readOnly: true,
-              decoration: const InputDecoration(
-                labelText: 'Nova Data de Vencimento',
-                border: OutlineInputBorder(),
-                suffixIcon: Icon(Icons.calendar_today),
-              ),
+              decoration: const InputDecoration(labelText: 'Data', border: OutlineInputBorder(), suffixIcon: Icon(Icons.calendar_today)),
               onTap: () => _selecionarData(context),
             ),
             const SizedBox(height: 16),
             CheckboxListTile(
-              title: const Text(
-                "Estou ciente que após a atualização, apenas um administrador pode alterar a data antes do vencimento.",
-                style: TextStyle(fontSize: 12),
-              ),
+              title: const Text("Estou ciente que após a atualização, apenas um administrador pode alterar a data antes do vencimento.", style: TextStyle(fontSize: 12)),
               value: _ciente,
-              onChanged: (bool? value) {
-                setState(() {
-                  _ciente = value ?? false;
-                });
-              },
+              onChanged: (val) => setState(() => _ciente = val ?? false),
               controlAffinity: ListTileControlAffinity.leading,
               contentPadding: EdgeInsets.zero,
             ),
-            if (_error != null)
-              Padding(
-                padding: const EdgeInsets.only(top: 16.0),
-                child: Text(_error!, style: const TextStyle(color: Colors.red)),
-              ),
+            if (_error != null) Padding(padding: const EdgeInsets.only(top: 16.0), child: Text(_error!, style: const TextStyle(color: Colors.red))),
           ],
         ),
       ),
       actions: [
-        TextButton(
-          onPressed: _isLoading ? null : () => Navigator.of(context).pop(),
-          child: const Text('Cancelar'),
-        ),
-        ElevatedButton.icon(
-          onPressed: (_isLoading || !_ciente) ? null : _submit,
-          icon: const Icon(Icons.refresh),
-          label: const Text('Atualizar calibração'),
-          style: ElevatedButton.styleFrom(
-            backgroundColor: Colors.green,
-            foregroundColor: Colors.white,
-          ),
-        ),
+        TextButton(onPressed: _isLoading ? null : () => Navigator.of(context).pop(), child: const Text('Cancelar')),
+        ElevatedButton.icon(onPressed: (_isLoading || !_ciente) ? null : _submit, icon: const Icon(Icons.refresh), label: const Text('Atualizar'), style: ElevatedButton.styleFrom(backgroundColor: Colors.green, foregroundColor: Colors.white)),
       ],
     );
   }
 }
 
 class _TagChip extends StatelessWidget {
-  final String label;
-  final Color backgroundColor;
-  final Color textColor;
-
-  const _TagChip({
-    required this.label,
-    required this.backgroundColor,
-    required this.textColor,
-  });
-
+  final String label; final Color backgroundColor; final Color textColor;
+  const _TagChip({required this.label, required this.backgroundColor, required this.textColor});
   @override
   Widget build(BuildContext context) {
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
-      decoration: BoxDecoration(
-        color: backgroundColor,
-        borderRadius: BorderRadius.circular(6),
-      ),
-      child: Text(
-        label,
-        style: TextStyle(
-          color: textColor,
-          fontWeight: FontWeight.bold,
-          fontSize: 11,
-        ),
-      ),
-    );
+    return Container(padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3), decoration: BoxDecoration(color: backgroundColor, borderRadius: BorderRadius.circular(6)), child: Text(label, style: TextStyle(color: textColor, fontWeight: FontWeight.bold, fontSize: 11)));
   }
 }
 
 class _InfoLinha extends StatelessWidget {
-  final IconData icon;
-  final String title;
-  final String value;
-  final Color? iconColor;
-  final Color? valueColor;
-
-  const _InfoLinha({
-    required this.icon,
-    required this.title,
-    required this.value,
-    this.iconColor,
-    this.valueColor,
-  });
-
+  final IconData icon; final String title; final String value; final Color? iconColor; final Color? valueColor;
+  const _InfoLinha({required this.icon, required this.title, required this.value, this.iconColor, this.valueColor});
   @override
   Widget build(BuildContext context) {
-    const Color defaultColor = Colors.black54; // Cor padrão escura
-    
-    return Row(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Icon(icon, color: iconColor ?? defaultColor, size: 16),
-        const SizedBox(width: 8),
-        Text(
-          title,
-          style: const TextStyle(color: defaultColor),
-        ),
-        const SizedBox(width: 4),
-        Expanded(
-          child: Text(
-            value,
-            style: TextStyle(
-              color: valueColor ?? Colors.black87, // Valor padrão mais escuro
-              fontWeight: FontWeight.bold,
-            ),
-          ),
-        ),
-      ],
-    );
+    return Row(crossAxisAlignment: CrossAxisAlignment.start, children: [Icon(icon, color: iconColor ?? Colors.black54, size: 16), const SizedBox(width: 8), Text(title, style: const TextStyle(color: Colors.black54)), const SizedBox(width: 4), Expanded(child: Text(value, style: TextStyle(color: valueColor ?? Colors.black87, fontWeight: FontWeight.bold)))]);
   }
 }
 
