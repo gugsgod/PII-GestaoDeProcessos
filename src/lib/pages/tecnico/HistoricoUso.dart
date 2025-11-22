@@ -30,7 +30,7 @@ class LocalFisico {
 class _HistoricoItem {
   final String idMovimentacao;
   final String nome;
-  final String idDisplay; 
+  final String idMaterial; 
   final String? categoria; 
   final String statusTag; 
   final bool isInstrumento;
@@ -49,7 +49,7 @@ class _HistoricoItem {
   _HistoricoItem({
     required this.idMovimentacao,
     required this.nome,
-    required this.idDisplay,
+    required this.idMaterial,
     this.categoria,
     required this.statusTag,
     required this.isInstrumento,
@@ -110,10 +110,9 @@ class HistoricoUsoState extends State<HistoricoUso> {
       List<_HistoricoItem> fetchedItems = [];
 
       if (_selectedTab == HistoricoTab.emUso) {
-        fetchedItems = await _fetchEmUso(token);
+        fetchedItems = await _fetchEmUso(token!);
       } else {
-        // TODO: Implementar endpoint de histórico passado
-        fetchedItems = []; 
+        fetchedItems = await _fetchHistoricoPassado(token!);
       }
 
       if (mounted) {
@@ -159,7 +158,7 @@ class HistoricoUsoState extends State<HistoricoUso> {
         return _HistoricoItem(
           idMovimentacao: idMov,
           nome: json['nomeMaterial'] ?? 'Item',
-          idDisplay: json['idMaterial'] ?? '',
+          idMaterial: json['idMaterial'] ?? '',
           categoria: isInst ? 'Instrumento' : 'Material',
           statusTag: statusDisplay,
           isInstrumento: isInst,
@@ -175,6 +174,37 @@ class HistoricoUsoState extends State<HistoricoUso> {
       }).toList();
     } else {
       throw Exception('Falha na API (${response.statusCode})');
+    }
+  }
+
+  Future<List<_HistoricoItem>> _fetchHistoricoPassado(String token) async {
+    final uri = Uri.parse('$_apiHost/movimentacoes/historico');
+    final headers = {'Authorization': 'Bearer $token'};
+
+    final response = await http.get(uri, headers: headers).timeout(const Duration(seconds: 10));
+
+    if (response.statusCode == 200) {
+      final List<dynamic> data = json.decode(utf8.decode(response.bodyBytes));
+      
+      return data.map((json) {
+        // Mapeamento simples, pois o backend já manda formatado
+        return _HistoricoItem(
+          idMovimentacao: json['idMovimentacao'],
+          nome: json['nomeMaterial'] ?? 'Item',
+          idMaterial: json['idMaterial'] ?? '',
+          categoria: json['categoria'],
+          statusTag: json['statusTag'] ?? 'Devolvido',
+          isInstrumento: json['isInstrumento'] ?? false,
+          destino: json['localizacao'] ?? 'N/A',
+          finalidade: 'Histórico de uso',
+          dataRetirada: DateTime.tryParse(json['dataRetirada'] ?? '') ?? DateTime.now(),
+          previsaoDevolucao: DateTime.tryParse(json['previsaoDevolucao'] ?? '') ?? DateTime.now(),
+          dataDevolucaoReal: DateTime.tryParse(json['dataDevolucaoReal'] ?? '') ?? DateTime.now(),
+          quantidadePendente: 0, // Item devolvido
+        );
+      }).toList();
+    } else {
+      throw Exception('Falha na API Histórico (${response.statusCode})');
     }
   }
 
@@ -406,7 +436,7 @@ class _HistoricoCard extends StatelessWidget {
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     Text(item.nome, style: const TextStyle(color: titleColor, fontWeight: FontWeight.bold, fontSize: 18)),
-                    Text(item.idDisplay, style: const TextStyle(color: textColor, fontSize: 14)),
+                    Text(item.idMaterial, style: const TextStyle(color: textColor, fontSize: 14)),
                   ],
                 ),
               ),
@@ -519,11 +549,15 @@ class _InfoLinha extends StatelessWidget {
 // ==========================================================
 
 class _ModalDevolverInstrumento extends StatefulWidget {
-  final _HistoricoItem item; // Adaptado para _HistoricoItem
+  final _HistoricoItem item; 
   final String token;
   final VoidCallback onSuccess;
 
-  const _ModalDevolverInstrumento({required this.item, required this.token, required this.onSuccess});
+  const _ModalDevolverInstrumento({
+    required this.item,
+    required this.token,
+    required this.onSuccess,
+  });
 
   @override
   State<_ModalDevolverInstrumento> createState() => _ModalDevolverInstrumentoState();
@@ -532,27 +566,89 @@ class _ModalDevolverInstrumento extends StatefulWidget {
 class _ModalDevolverInstrumentoState extends State<_ModalDevolverInstrumento> {
   static const String _apiHost = 'http://localhost:8080';
   bool _isLoading = false;
+  bool _isLoadingLocais = true; // Controle de carregamento
   String? _error;
+  
+  // Variáveis para o Local de Destino
+  LocalFisico? _selectedDestinoLocal;
+  List<LocalFisico> _locais = [];
+
+  @override
+  void initState() {
+    super.initState();
+    _fetchLocais();
+  }
+
+  Future<void> _fetchLocais() async {
+    final uri = Uri.parse('$_apiHost/locais');
+    final headers = {'Authorization': 'Bearer ${widget.token}'};
+
+    try {
+      final response = await http.get(uri, headers: headers);
+      if (response.statusCode == 200) {
+        final List<dynamic> jsonList = jsonDecode(response.body)['data'] as List<dynamic>;
+        if (mounted) {
+          setState(() {
+            _locais = jsonList.map((j) => LocalFisico.fromJson(j as Map<String, dynamic>)).toList();
+            // Opcional: Pré-selecionar o primeiro
+            if (_locais.isNotEmpty) {
+              _selectedDestinoLocal = _locais.first;
+            }
+          });
+        }
+      } else {
+        _error = 'Falha ao carregar locais: ${response.statusCode}';
+      }
+    } catch (e) {
+      _error = 'Erro de rede: $e';
+    } finally {
+      if (mounted) setState(() => _isLoadingLocais = false);
+    }
+  }
 
   Future<void> _submit() async {
-    setState(() { _isLoading = true; _error = null; });
+    setState(() {
+      _isLoading = true;
+      _error = null;
+    });
+
+    if (_selectedDestinoLocal == null) {
+      setState(() { _error = 'Selecione o local de destino.'; _isLoading = false; });
+      return;
+    }
+
     try {
+      final body = json.encode({
+        'idMovimentacao': widget.item.idMovimentacao,
+        'destino_local_id': _selectedDestinoLocal!.id, // <-- AGORA ENVIA O DESTINO
+      });
+
       final response = await http.post(
         Uri.parse('$_apiHost/movimentacoes/devolucao'),
-        headers: {'Content-Type': 'application/json', 'Authorization': 'Bearer ${widget.token}'},
-        body: json.encode({'idMovimentacao': widget.item.idMovimentacao}),
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': 'Bearer ${widget.token}',
+        },
+        body: body,
       );
+
       if (!mounted) return;
       if (response.statusCode == 200) {
         Navigator.of(context).pop();
         widget.onSuccess();
       } else {
         final Map<String, dynamic> errorData = json.decode(response.body);
-        setState(() { _error = errorData['error'] ?? 'Falha ao devolver.'; _isLoading = false; });
+        setState(() {
+          _error = errorData['error'] ?? 'Falha ao devolver o instrumento.';
+          _isLoading = false;
+        });
       }
     } catch (e) {
       if (!mounted) return;
-      setState(() { _error = 'Erro de conexão: $e'; _isLoading = false; });
+      setState(() {
+        _error = 'Erro de conexão: ${e.toString()}';
+        _isLoading = false;
+      });
     }
   }
 
@@ -560,12 +656,56 @@ class _ModalDevolverInstrumentoState extends State<_ModalDevolverInstrumento> {
   Widget build(BuildContext context) {
     return AlertDialog(
       title: const Text('Confirmar Devolução'),
-      content: Text('Confirmar devolução de ${widget.item.nome} (${widget.item.idDisplay})?'),
+      content: SingleChildScrollView(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text('Instrumento: ${widget.item.nome} (${widget.item.idMaterial})'),
+            const SizedBox(height: 16),
+            
+            if (_isLoadingLocais) 
+              const Center(child: CircularProgressIndicator()) 
+            else ...[
+              DropdownButtonFormField<LocalFisico>(
+                value: _selectedDestinoLocal,
+                isExpanded: true,
+                decoration: const InputDecoration(
+                  labelText: 'Local de Destino',
+                  border: OutlineInputBorder(),
+                ),
+                items: _locais.map((local) {
+                  return DropdownMenuItem(
+                    value: local,
+                    child: Text(local.nome),
+                  );
+                }).toList(),
+                onChanged: (local) {
+                  setState(() {
+                    _selectedDestinoLocal = local;
+                  });
+                },
+                hint: const Text('Selecione onde guardar'),
+              ),
+            ],
+            
+            if (_error != null) ...[
+              const SizedBox(height: 16),
+              Text(_error!, style: const TextStyle(color: Colors.red)),
+            ],
+          ],
+        ),
+      ),
       actions: [
-        TextButton(onPressed: _isLoading ? null : () => Navigator.of(context).pop(), child: const Text('Cancelar')),
+        TextButton(
+          onPressed: _isLoading ? null : () => Navigator.of(context).pop(),
+          child: const Text('Cancelar'),
+        ),
         ElevatedButton(
-          onPressed: _isLoading ? null : _submit,
-          child: _isLoading ? const SizedBox(width: 20, height: 20, child: CircularProgressIndicator(strokeWidth: 2)) : const Text('Devolver'),
+          onPressed: (_isLoading || _isLoadingLocais || _selectedDestinoLocal == null) ? null : _submit,
+          child: _isLoading
+              ? const SizedBox(width: 20, height: 20, child: CircularProgressIndicator(strokeWidth: 2))
+              : const Text('Devolver'),
         ),
       ],
     );

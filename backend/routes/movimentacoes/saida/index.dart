@@ -1,5 +1,3 @@
-// ARQUIVO: routes/movimentacoes/saida/index.dart (Corrigido)
-
 import 'package:dart_frog/dart_frog.dart';
 import 'package:postgres/postgres.dart';
 import 'package:backend/api_utils.dart';
@@ -48,6 +46,10 @@ Future<Response> onRequest(RequestContext context) async {
     final body = await readJson(context);
     final materialId = body['material_id'];
     final instrumentoId = body['instrumento_id'];
+    
+    // Lemos o local_id aqui, pois agora ele é usado para AMBOS (Materiais e Instrumentos)
+    final localIdRaw = body['local_id'];
+    
     final previsaoDevolucaoRaw = body['previsao_devolucao'] as String?;
 
     if (previsaoDevolucaoRaw == null) {
@@ -57,25 +59,34 @@ Future<Response> onRequest(RequestContext context) async {
     if (previsaoDevolucao == null) {
       throw _BadRequest('Formato de data inválido para previsao_devolucao');
     }
-
+    
+    // Força UTC para evitar problema de fuso horário no banco
     final previsaoDevolucaoUtc = previsaoDevolucao.toUtc();
 
     // ==========================================================
     // ===== ROTA 1: SAÍDA DE INSTRUMENTO =======================
     // ==========================================================
     if (instrumentoId != null) {
+      
+      // VALIDAÇÃO DO LOCAL DE ORIGEM (Vindo do Frontend)
+      if (localIdRaw == null || localIdRaw is! int) {
+        throw _BadRequest('Para retirar um instrumento, você deve informar o local de origem (local_id).');
+      }
+      final int origemLocalId = localIdRaw;
+
+      // 1. Atualiza o status atual
       final rows = await conn.execute(
         Sql.named('''
           UPDATE instrumentos
           SET 
             status = 'em_uso',
             responsavel_atual_id = @uid,
-            local_atual_id = NULL, 
+            local_atual_id = NULL, -- O instrumento sai do local
             previsao_devolucao = @previsao,
-            updated_at = NOW() -- <-- A CORREÇÃO ESTÁ AQUI
+            updated_at = NOW()
           WHERE
             id = @id AND status = 'disponivel'
-        RETURNING id, patrimonio, status::text, previsao_devolucao, updated_at -- Adicionado updated_at
+          RETURNING id, patrimonio, status::text, previsao_devolucao, updated_at
         '''),
         parameters: {
           'uid': uid,
@@ -88,16 +99,32 @@ Future<Response> onRequest(RequestContext context) async {
         throw _NotFound('Instrumento não encontrado ou indisponível para retirada.');
       }
 
-      // Converte os DateTimes para Strings JSON-safe (ISO 8601)
+      // 2. Grava no Histórico (Agora usando o local fornecido pelo usuário)
+      await conn.execute(
+        Sql.named('''
+          INSERT INTO movimentacao_instrumento 
+            (instrumento_id, responsavel_id, operacao, created_at, origem_local_id, previsao_devolucao)
+          VALUES 
+            (@instId, @uid, 'retirada', NOW(), @origemId, @previsao)
+        '''),
+        parameters: {
+          'instId': instrumentoId,
+          'uid': uid,
+          'origemId': origemLocalId, // <--- USA O ID DO DROPDOWN
+          'previsao': previsaoDevolucaoUtc,
+        }
+      );
+
+      // Formata resposta
       final instrumentoData = rows.first.toColumnMap();
       
-      final previsao = instrumentoData['previsao_devolucao'] as DateTime;
-      instrumentoData['previsao_devolucao'] = previsao.toIso8601String();
-      
-      // Também converte o novo updated_at que retornamos
-      final retirada = instrumentoData['updated_at'] as DateTime;
-      instrumentoData['updated_at'] = retirada.toIso8601String();
-
+      // Tratamento seguro de datas para retorno
+      if (instrumentoData['previsao_devolucao'] is DateTime) {
+         instrumentoData['previsao_devolucao'] = (instrumentoData['previsao_devolucao'] as DateTime).toIso8601String();
+      }
+      if (instrumentoData['updated_at'] is DateTime) {
+         instrumentoData['updated_at'] = (instrumentoData['updated_at'] as DateTime).toIso8601String();
+      }
 
       return jsonOk({'instrumento': instrumentoData});
     }
@@ -106,13 +133,16 @@ Future<Response> onRequest(RequestContext context) async {
     // ===== ROTA 2: SAÍDA DE MATERIAL ==========================
     // ==========================================================
     else if (materialId != null) {
-      // (Esta rota já estava correta, pois usa 'created_at' do INSERT)
-      final origemLocalId = body['local_id']; 
+      // Validação específica de material
+      if (localIdRaw == null || localIdRaw is! int) {
+         throw _BadRequest('local_id obrigatório para retirada de material.');
+      }
+      final int origemLocalId = localIdRaw;
+      
       final lote = (body['lote'] as String?)?.trim();
       final quantidade = body['quantidade'];
 
       if (materialId is! int) throw _BadRequest('material_id obrigatório');
-      if (origemLocalId is! int) throw _BadRequest('local_id obrigatório');
       if (quantidade is! num || quantidade <= 0) {
         throw _BadRequest('quantidade deve ser > 0');
       }
@@ -138,9 +168,6 @@ Future<Response> onRequest(RequestContext context) async {
       return jsonOk({'mov_id': ins.first[0]});
     }
     
-    // ==========================================================
-    // ===== ROTA 3: ERRO (NENHUM ID) ===========================
-    // ==========================================================
     else {
       throw _BadRequest('instrumento_id ou material_id deve ser fornecido.');
     }
@@ -151,8 +178,9 @@ Future<Response> onRequest(RequestContext context) async {
     return jsonNotFound(e.message);
   } on PgException catch (e, st) {
     print('POST /movimentacoes/saida pg error: $e\n$st');
-    // if (e.code == 'P0001') { 
-    //    return jsonBad({'error': e.message});
+    // Se violar check constraint (estoque negativo ou regra de fluxo)
+    // if (e.code == '23514') { 
+    //    return jsonBad({'error': 'Operação inválida: violação de regra de estoque ou fluxo.'});
     // }
     return jsonServer({'error': 'internal', 'detail': e.message});
   } catch (e, st) {

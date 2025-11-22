@@ -30,8 +30,8 @@ class Atividade {
   final String idMovimentacao; 
   final String nomeMaterial;
   final String idMaterial; 
-  final String? lote; // <-- CAMPO ADICIONADO
-  final double quantidadePendente; // <-- CAMPO ADICIONADO
+  final String? lote; 
+  final double quantidadePendente;
   final String localizacao;
   final DateTime dataRetirada;
   final DateTime dataDevolucao;
@@ -40,8 +40,8 @@ class Atividade {
     required this.idMovimentacao,
     required this.nomeMaterial,
     required this.idMaterial,
-    this.lote, // <-- CAMPO ADICIONADO
-    required this.quantidadePendente, // <-- CAMPO ADICIONADO
+    this.lote,
+    required this.quantidadePendente,
     required this.localizacao,
     required this.dataRetirada,
     required this.dataDevolucao,
@@ -488,7 +488,46 @@ class _ModalDevolverInstrumento extends StatefulWidget {
 class _ModalDevolverInstrumentoState extends State<_ModalDevolverInstrumento> {
   static const String _apiHost = 'http://localhost:8080';
   bool _isLoading = false;
+  bool _isLoadingLocais = true; // NOVO: Controle de loading de locais
   String? _error;
+  
+  // NOVOS ESTADOS PARA LOCAL
+  LocalFisico? _selectedDestinoLocal;
+  List<LocalFisico> _locais = [];
+
+  @override
+  void initState() {
+    super.initState();
+    _fetchLocais();
+  }
+
+  // MÉTODO COPIADO DO MODAL DE MATERIAL PARA BUSCAR LOCAIS
+  Future<void> _fetchLocais() async {
+    final uri = Uri.parse('$_apiHost/locais');
+    final headers = {'Authorization': 'Bearer ${widget.token}'};
+
+    try {
+      final response = await http.get(uri, headers: headers);
+      if (response.statusCode == 200) {
+        final List<dynamic> jsonList = jsonDecode(response.body)['data'] as List<dynamic>;
+        if (mounted) {
+          setState(() {
+            _locais = jsonList.map((j) => LocalFisico.fromJson(j as Map<String, dynamic>)).toList();
+            if (_locais.isNotEmpty) {
+              _selectedDestinoLocal = _locais.first; // Pré-seleciona o primeiro
+            }
+          });
+        }
+      } else {
+        _error = 'Falha ao carregar locais: ${response.statusCode}';
+      }
+    } catch (e) {
+      _error = 'Erro de rede: $e';
+    } finally {
+      if (mounted) setState(() => _isLoadingLocais = false);
+    }
+  }
+
 
   Future<void> _submit() async {
     setState(() {
@@ -496,18 +535,29 @@ class _ModalDevolverInstrumentoState extends State<_ModalDevolverInstrumento> {
       _error = null;
     });
 
+    if (_selectedDestinoLocal == null) {
+      setState(() { _error = 'Selecione o local de destino.'; _isLoading = false; });
+      return;
+    }
+
     try {
+      final body = json.encode({
+        'idMovimentacao': widget.atividade.idMovimentacao,
+        // NOVO CAMPO SENDO ENVIADO
+        'destino_local_id': _selectedDestinoLocal!.id, 
+      });
+
       final response = await http.post(
         Uri.parse('$_apiHost/movimentacoes/devolucao'),
         headers: {
           'Content-Type': 'application/json',
           'Authorization': 'Bearer ${widget.token}',
         },
-        // Envia o ID composto (inst-ID)
-        body: json.encode({'idMovimentacao': widget.atividade.idMovimentacao}),
+        body: body,
       );
 
       if (!mounted) return;
+
       if (response.statusCode == 200) {
         Navigator.of(context).pop();
         widget.onSuccess();
@@ -531,8 +581,46 @@ class _ModalDevolverInstrumentoState extends State<_ModalDevolverInstrumento> {
   Widget build(BuildContext context) {
     return AlertDialog(
       title: const Text('Confirmar Devolução'),
-      content: Text(
-        'Você confirma a devolução do instrumento ${widget.atividade.nomeMaterial} (${widget.atividade.idMaterial})?',
+      content: SingleChildScrollView(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text('Instrumento: ${widget.atividade.nomeMaterial} (${widget.atividade.idMaterial})'),
+            const SizedBox(height: 16),
+            
+            if (_isLoadingLocais) 
+              const Center(child: CircularProgressIndicator()) 
+            else ...[
+              // DROPDOWN DE LOCAL DE DESTINO
+              DropdownButtonFormField<LocalFisico>(
+                value: _selectedDestinoLocal,
+                isExpanded: true,
+                decoration: const InputDecoration(
+                  labelText: 'Local de Destino',
+                  border: OutlineInputBorder(),
+                ),
+                items: _locais.map((local) {
+                  return DropdownMenuItem(
+                    value: local,
+                    child: Text(local.nome),
+                  );
+                }).toList(),
+                onChanged: (local) {
+                  setState(() {
+                    _selectedDestinoLocal = local;
+                  });
+                },
+                hint: const Text('Selecione o local para guardar'),
+              ),
+            ],
+            
+            if (_error != null) ...[
+              const SizedBox(height: 16),
+              Text(_error!, style: const TextStyle(color: Colors.red)),
+            ],
+          ],
+        ),
       ),
       actions: [
         TextButton(
@@ -540,7 +628,8 @@ class _ModalDevolverInstrumentoState extends State<_ModalDevolverInstrumento> {
           child: const Text('Cancelar'),
         ),
         ElevatedButton(
-          onPressed: _isLoading ? null : _submit,
+          // Desabilitado se estiver carregando ou sem local selecionado
+          onPressed: (_isLoading || _isLoadingLocais || _selectedDestinoLocal == null) ? null : _submit,
           child: _isLoading
               ? const SizedBox(width: 20, height: 20, child: CircularProgressIndicator(strokeWidth: 2))
               : const Text('Devolver'),

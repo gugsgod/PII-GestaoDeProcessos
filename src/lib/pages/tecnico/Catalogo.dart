@@ -18,6 +18,19 @@ import 'dart:io'; // Para SocketException
 // Enum para controlar o seletor
 enum CatalogoTipo { instrumentos, materiais }
 
+class LocalFisico {
+  final int id;
+  final String nome;
+  LocalFisico({required this.id, required this.nome});
+  
+  factory LocalFisico.fromJson(Map<String, dynamic> json) {
+    return LocalFisico(
+      id: json['id'] as int,
+      nome: json['nome'] as String,
+    );
+  }
+}
+
 class InstrumentoCatalogo {
   final String id;
   final String nome;
@@ -877,27 +890,84 @@ class _ModalRetirarInstrumento extends StatefulWidget {
 }
 
 class _ModalRetirarInstrumentoState extends State<_ModalRetirarInstrumento> {
+  static const String _apiHost = 'http://localhost:8080'; // Ajuste se necessário
+  
   DateTime _previsaoDevolucao = DateTime.now().add(const Duration(days: 1));
   bool _isLoading = false;
+  bool _isLoadingLocais = true; // Controle de carregamento dos locais
   String? _error;
 
-  // Função que faz o POST
+  // Variáveis para o Local de Origem
+  List<LocalFisico> _locais = [];
+  LocalFisico? _selectedOrigemLocal;
+
+  @override
+  void initState() {
+    super.initState();
+    _fetchLocais();
+  }
+
+  // Busca os locais para preencher o dropdown
+  Future<void> _fetchLocais() async {
+    try {
+      final response = await http.get(
+        Uri.parse('$_apiHost/locais'),
+        headers: {'Authorization': 'Bearer ${widget.token}'},
+      );
+
+      if (response.statusCode == 200) {
+        final List<dynamic> data = json.decode(utf8.decode(response.bodyBytes))['data'];
+        if (mounted) {
+          setState(() {
+            _locais = data.map((json) => LocalFisico.fromJson(json)).toList();
+            
+            // Tenta pré-selecionar o local atual do instrumento, se o nome bater
+            // (Opcional: melhora a experiência do usuário)
+            try {
+              _selectedOrigemLocal = _locais.firstWhere(
+                (l) => l.nome.toLowerCase() == widget.item.local.toLowerCase()
+              );
+            } catch (_) {
+              // Se não achar pelo nome, não seleciona nada ou seleciona o primeiro
+              // _selectedOrigemLocal = _locais.isNotEmpty ? _locais.first : null;
+            }
+          });
+        }
+      }
+    } catch (e) {
+      // Falha silenciosa na busca de locais ou log
+      print('Erro ao buscar locais: $e');
+    } finally {
+      if (mounted) {
+        setState(() => _isLoadingLocais = false);
+      }
+    }
+  }
+
   Future<void> _submit() async {
     setState(() {
       _isLoading = true;
       _error = null;
     });
 
+    // Validação: Origem é obrigatória
+    if (_selectedOrigemLocal == null) {
+      setState(() {
+        _error = 'Por favor, informe de onde você está retirando o instrumento.';
+        _isLoading = false;
+      });
+      return;
+    }
+
     try {
       final body = json.encode({
-        // O backend espera o ID do instrumento
-        'instrumento_id': widget.item.id,
-        // O backend espera a data no formato ISO 8601
+        'instrumento_id': widget.item.id, // O ID é string no modelo, mas backend espera int/string parseável
         'previsao_devolucao': _previsaoDevolucao.toIso8601String(),
+        'local_id': _selectedOrigemLocal!.id, // <-- ENVIANDO A ORIGEM ESCOLHIDA
       });
 
       final response = await http.post(
-        Uri.parse('http://localhost:8080/movimentacoes/saida'),
+        Uri.parse('$_apiHost/movimentacoes/saida'),
         headers: {
           'Content-Type': 'application/json',
           'Authorization': 'Bearer ${widget.token}',
@@ -908,8 +978,8 @@ class _ModalRetirarInstrumentoState extends State<_ModalRetirarInstrumento> {
       if (!mounted) return;
 
       if (response.statusCode == 200) {
-        Navigator.of(context).pop(); // Fecha o modal
-        widget.onSuccess(); // Chama o callback
+        Navigator.of(context).pop(); 
+        widget.onSuccess(); 
       } else {
         final Map<String, dynamic> errorData = json.decode(response.body);
         setState(() {
@@ -928,56 +998,86 @@ class _ModalRetirarInstrumentoState extends State<_ModalRetirarInstrumento> {
 
   @override
   Widget build(BuildContext context) {
-    // Simples "Date Picker" (pode ser melhorado)
-    // Para um app real, use um pacote como `showDatePicker`
     final TextEditingController dateController = TextEditingController(
       text: DateFormat('dd/MM/yyyy HH:mm').format(_previsaoDevolucao),
     );
 
     return AlertDialog(
       title: Text('Retirar ${widget.item.nome}'),
-      content: Column(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Text('Patrimônio: ${widget.item.patrimonio}'),
-          const SizedBox(height: 16),
-          TextField(
-            controller: dateController,
-            readOnly: true,
-            decoration: const InputDecoration(
-              labelText: 'Previsão de Devolução',
-              border: OutlineInputBorder(),
-              suffixIcon: Icon(Icons.calendar_today),
-            ),
-            onTap: () async {
-              final date = await showDatePicker(
-                context: context,
-                initialDate: _previsaoDevolucao,
-                firstDate: DateTime.now(),
-                lastDate: DateTime.now().add(const Duration(days: 365)),
-              );
-              if (date == null) return;
-              
-              if (!mounted) return;
-              final time = await showTimePicker(
-                context: context,
-                initialTime: TimeOfDay.fromDateTime(_previsaoDevolucao),
-              );
-              if (time == null) return;
-
-              setState(() {
-                _previsaoDevolucao = DateTime(
-                  date.year, date.month, date.day,
-                  time.hour, time.minute,
-                );
-              });
-            },
-          ),
-          if (_error != null) ...[
+      content: SingleChildScrollView( // Adicionado Scroll para telas pequenas
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Text('Patrimônio: ${widget.item.patrimonio}'),
             const SizedBox(height: 16),
-            Text(_error!, style: const TextStyle(color: Colors.red)),
+            
+            // --- CAMPO DE DATA (MANTIDO) ---
+            TextField(
+              controller: dateController,
+              readOnly: true,
+              decoration: const InputDecoration(
+                labelText: 'Previsão de Devolução',
+                border: OutlineInputBorder(),
+                suffixIcon: Icon(Icons.calendar_today),
+              ),
+              onTap: () async {
+                final date = await showDatePicker(
+                  context: context,
+                  initialDate: _previsaoDevolucao,
+                  firstDate: DateTime.now(),
+                  lastDate: DateTime.now().add(const Duration(days: 365)),
+                );
+                if (date == null) return;
+                
+                if (!mounted) return;
+                final time = await showTimePicker(
+                  context: context,
+                  initialTime: TimeOfDay.fromDateTime(_previsaoDevolucao),
+                );
+                if (time == null) return;
+
+                setState(() {
+                  _previsaoDevolucao = DateTime(
+                    date.year, date.month, date.day,
+                    time.hour, time.minute,
+                  );
+                });
+              },
+            ),
+            const SizedBox(height: 16),
+
+            // --- NOVO: DROPDOWN DE LOCAL DE ORIGEM ---
+            if (_isLoadingLocais)
+              const Center(child: CircularProgressIndicator())
+            else
+              DropdownButtonFormField<LocalFisico>(
+                value: _selectedOrigemLocal,
+                isExpanded: true,
+                decoration: const InputDecoration(
+                  labelText: 'Retirado de (Local de Origem)',
+                  border: OutlineInputBorder(),
+                  prefixIcon: Icon(Icons.location_on),
+                ),
+                hint: const Text('Selecione o local'),
+                items: _locais.map((local) {
+                  return DropdownMenuItem(
+                    value: local,
+                    child: Text(local.nome),
+                  );
+                }).toList(),
+                onChanged: (local) {
+                  setState(() {
+                    _selectedOrigemLocal = local;
+                  });
+                },
+              ),
+            
+            if (_error != null) ...[
+              const SizedBox(height: 16),
+              Text(_error!, style: const TextStyle(color: Colors.red)),
+            ],
           ],
-        ],
+        ),
       ),
       actions: [
         TextButton(
@@ -985,7 +1085,7 @@ class _ModalRetirarInstrumentoState extends State<_ModalRetirarInstrumento> {
           child: const Text('Cancelar'),
         ),
         ElevatedButton(
-          onPressed: _isLoading ? null : _submit,
+          onPressed: (_isLoading || _isLoadingLocais) ? null : _submit,
           child: _isLoading
               ? const SizedBox(width: 20, height: 20, child: CircularProgressIndicator(strokeWidth: 2))
               : const Text('Confirmar Retirada'),

@@ -14,6 +14,19 @@ import 'dart:convert';
 // Enum para o status do instrumento
 enum InstrumentStatus { ativo, inativo }
 
+class LocalFisico {
+  final int id;
+  final String nome;
+  LocalFisico({required this.id, required this.nome});
+
+  factory LocalFisico.fromJson(Map<String, dynamic> json) {
+    return LocalFisico(
+      id: json['id'] as int,
+      nome: json['nome'] as String,
+    );
+  }
+}
+
 // Modelo de dados
 class Instrument {
   final String id;
@@ -97,17 +110,50 @@ class _InstrumentosAdminPageState extends State<InstrumentosAdminPage> {
   List<Instrument> _instruments = [];
   String _searchQuery = '';
 
+  List<LocalFisico> _locais = [];
+  bool _isLoadingLocais = true;
+
   @override
   void initState() {
     super.initState();
     _lastUpdated = DateTime.now();
     WidgetsBinding.instance.addPostFrameCallback((_) => _load());
+    _fetchLocais();
   }
 
   @override
   void dispose() {
     _scrollController.dispose();
     super.dispose();
+  }
+
+  Future<void> _fetchLocais() async {
+    final token = Provider.of<AuthStore>(context, listen: false).token;
+    if (token == null) return;
+
+    try {
+      final response = await http.get(
+        Uri.parse('http://localhost:8080/locais'),
+        headers: {'Authorization': 'Bearer $token'},
+      );
+
+      if (response.statusCode == 200) {
+        final List<dynamic> jsonList = jsonDecode(response.body)['data'] as List<dynamic>;
+        if (mounted) {
+          setState(() {
+            _locais = jsonList.map((j) => LocalFisico.fromJson(j as Map<String, dynamic>)).toList();
+          });
+        }
+      } 
+    } catch (e) {
+      print('Erro de rede ao buscar locais: $e');
+    } finally {
+      if (mounted) {
+        setState(() {
+          _isLoadingLocais = false;
+        });
+      }
+    }
   }
 
   Future<void> _load() async {
@@ -161,7 +207,7 @@ class _InstrumentosAdminPageState extends State<InstrumentosAdminPage> {
     required String patrimonio,
     required String descricao,
     String? categoria,
-    int? localId,
+    required int localId,
     String? proximaCalibracao,
   }) async {
     final auth = context.read<AuthStore>();
@@ -218,20 +264,27 @@ class _InstrumentosAdminPageState extends State<InstrumentosAdminPage> {
   }
 
   void _showAddInstrumentDialog() {
+    // BARRA A ABERTURA DO DIÁLOGO SE O LOCAL ESTIVER CARREGANDO OU VAZIO
+    if (_isLoadingLocais || _locais.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(_isLoadingLocais ? 'Carregando locais...' : 'Nenhum local cadastrado!')),
+      );
+      return;
+    }
+
     showDialog(
       context: context,
       builder: (BuildContext context) {
-        // Passa a função de salvar para o dialog
         return _AddInstrumentDialog(
+          locaisDisponiveis: _locais, // <-- PASSANDO A LISTA DE LOCAIS
           onSave:
               (
                 String patrimonio,
                 String descricao,
                 String? categoria,
-                int? localId,
+                int localId, // AGORA OBRIGATÓRIO AQUI
                 String? proximaCalibracao,
               ) async {
-                // Chama a nova função de API
                 return await _addNewInstrument(
                   patrimonio: patrimonio,
                   descricao: descricao,
@@ -673,16 +726,20 @@ class _StatusChip extends StatelessWidget {
 
 class _AddInstrumentDialog extends StatefulWidget {
   // Callback que chama a função de salvar da classe pai
+  final List<LocalFisico> locaisDisponiveis;
   final Future<bool> Function(
     String patrimonio,
     String descricao,
     String? categoria,
-    int? localId,
+    int localId,
     String? proximaCalibracao,
   )
   onSave;
 
-  const _AddInstrumentDialog({required this.onSave});
+  const _AddInstrumentDialog({
+    required this.onSave,
+    required this.locaisDisponiveis, 
+  });
 
   @override
   State<_AddInstrumentDialog> createState() => _AddInstrumentDialogState();
@@ -693,57 +750,61 @@ class _AddInstrumentDialogState extends State<_AddInstrumentDialog> {
   final TextEditingController _patrimonioController = TextEditingController();
   final TextEditingController _descricaoController = TextEditingController();
   final TextEditingController _categoriaController = TextEditingController();
-  final TextEditingController _localIdController = TextEditingController();
   final TextEditingController _calibracaoController = TextEditingController();
+  LocalFisico? _selectedLocal;
 
   bool _isSaving = false;
+
+  @override
+  void initState() {
+    super.initState();
+    if (widget.locaisDisponiveis.isNotEmpty) {
+      _selectedLocal = widget.locaisDisponiveis.first;
+    }
+  }
 
   @override
   void dispose() {
     _patrimonioController.dispose();
     _descricaoController.dispose();
     _categoriaController.dispose();
-    _localIdController.dispose();
     _calibracaoController.dispose();
     super.dispose();
   }
 
   // Tenta salvar o instrumento
   Future<void> _saveInstrument() async {
-    // Valida o formulário
     if (!_formKey.currentState!.validate()) {
       return;
     }
+
+    if (_selectedLocal == null) {
+      setState(() { _isSaving = false; }); 
+      return;
+    }
+
 
     setState(() {
       _isSaving = true;
     });
 
-    // Converte os valores
     final String patrimonio = _patrimonioController.text.trim();
     final String descricao = _descricaoController.text.trim();
-    final String? categoria = _categoriaController.text.trim().isEmpty
-        ? null
-        : _categoriaController.text.trim();
-    final int? localId = int.tryParse(_localIdController.text.trim());
-    final String? calibracao = _calibracaoController.text.trim().isEmpty
-        ? null
-        : _calibracaoController.text.trim();
+    final String? categoria = _categoriaController.text.trim().isEmpty ? null : _categoriaController.text.trim();
+    final String? proximaCalibracao = _calibracaoController.text.trim().isEmpty ? null : _calibracaoController.text.trim();
 
-    // Chama a função de salvar (que é o _addNewInstrument da InstrumentosAdminPage)
+    // CHAMA A FUNÇÃO DE SALVAR COM O ID DO LOCAL SELECIONADO
     final bool success = await widget.onSave(
       patrimonio,
       descricao,
       categoria,
-      localId,
-      calibracao,
+      _selectedLocal!.id, // <-- VALOR OBRIGATÓRIO (NOT NULL!)
+      proximaCalibracao,
     );
 
     if (success && mounted) {
-      // Se salvou com sucesso, fecha o dialog
       Navigator.of(context).pop();
     } else {
-      // Se falhou, apenas para de carregar (o snackbar de erro já foi mostrado)
       setState(() {
         _isSaving = false;
       });
@@ -838,22 +899,43 @@ class _AddInstrumentDialogState extends State<_AddInstrumentDialog> {
               const SizedBox(height: 16),
 
               // Campo LOCAL ID
-              TextFormField(
-                controller: _localIdController,
-                style: const TextStyle(color: Colors.white),
-                keyboardType: TextInputType.number,
-                decoration: _buildInputDecoration(
-                  label: 'ID do Local',
-                  icon: Icons.location_on,
+              Container(
+                padding: const EdgeInsets.symmetric(vertical: 4),
+                decoration: BoxDecoration(
+                  color: inputFillColor,
+                  borderRadius: BorderRadius.circular(12),
+                  border: Border.all(color: borderColor),
                 ),
-                validator: (value) {
-                  if (value == null || value.trim().isEmpty)
-                    return null; // Campo opcional
-                  if (int.tryParse(value.trim()) == null) {
-                    return 'O ID deve ser um número';
-                  }
-                  return null;
-                },
+                child: DropdownButtonFormField<LocalFisico>(
+                  value: _selectedLocal,
+                  dropdownColor: primaryColor,
+                  icon: const Icon(Icons.arrow_drop_down, color: hintColor),
+                  style: const TextStyle(color: Colors.white),
+                  decoration: _buildInputDecoration(
+                    label: 'Local Atual *', // Rótulo obrigatório
+                    icon: Icons.location_on,
+                  ).copyWith(
+                    prefixIcon: Icon(Icons.location_on, color: hintColor),
+                    border: InputBorder.none,
+                    enabledBorder: InputBorder.none,
+                    focusedBorder: InputBorder.none,
+                  ),
+                  items: widget.locaisDisponiveis.map((local) {
+                    return DropdownMenuItem(
+                      value: local,
+                      child: Text(local.nome, overflow: TextOverflow.ellipsis),
+                    );
+                  }).toList(),
+                  onChanged: (LocalFisico? newValue) {
+                    setState(() {
+                      _selectedLocal = newValue;
+                    });
+                  },
+                  validator: (value) {
+                    if (value == null) return 'O Local é obrigatório';
+                    return null;
+                  },
+                ),
               ),
               const SizedBox(height: 16),
 

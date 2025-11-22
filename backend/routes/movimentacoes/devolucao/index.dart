@@ -75,21 +75,52 @@ Future<Response> onRequest(RequestContext context) async {
     // ===== ROTA 1: DEVOLUÇÃO DE INSTRUMENTO ===================
     // ==========================================================
     if (tipo == 'inst') {
+      // CORREÇÃO: Ler o destino_local_id
+      final destinoLocalId = body['destino_local_id'];
+      if (destinoLocalId == null || destinoLocalId is! int) {
+        throw _BadRequest('destino_local_id (int) é obrigatório para devolução de instrumento.');
+      }
+
+      // 1. Atualiza o status e DEFINE O NOVO LOCAL
       final rows = await conn.execute(
         Sql.named('''
           UPDATE instrumentos
-          SET status = 'disponivel', responsavel_atual_id = NULL, previsao_devolucao = NULL, updated_at = NOW()
+          SET 
+            status = 'disponivel', 
+            responsavel_atual_id = NULL, 
+            local_atual_id = @destino, -- <--- ATUALIZA O LOCAL
+            previsao_devolucao = NULL, 
+            updated_at = NOW()
           WHERE id = @id AND responsavel_atual_id = @uid AND status = 'em_uso'
           RETURNING id, patrimonio
         '''),
-        parameters: { 'uid': uid, 'id': id },
+        parameters: { 
+          'uid': uid, 
+          'id': id,
+          'destino': destinoLocalId 
+        },
       );
       
       if (rows.isEmpty) {
         throw _NotFound('Instrumento ID $id não encontrado, já devolvido ou não sob sua responsabilidade.');
       }
+
+      // 2. Grava no Histórico (Com destino)
+      await conn.execute(
+        Sql.named('''
+          INSERT INTO movimentacao_instrumento 
+            (instrumento_id, responsavel_id, operacao, created_at, destino_local_id)
+          VALUES 
+            (@instId, @uid, 'devolucao', NOW(), @destino)
+        '''),
+        parameters: {
+          'instId': id,
+          'uid': uid,
+          'destino': destinoLocalId,
+        }
+      );
+
       mensagemSucesso = 'Instrumento ${rows.first.toColumnMap()['patrimonio']} devolvido.';
-    
     // ==========================================================
     // ===== ROTA 2: DEVOLUÇÃO DE MATERIAL (COM LOTE) ===========
     // ==========================================================
