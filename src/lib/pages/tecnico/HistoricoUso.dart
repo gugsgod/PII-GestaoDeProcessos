@@ -1,14 +1,38 @@
+import 'dart:async';
+import 'dart:convert';
+import 'dart:io';
 import 'package:flutter/material.dart';
+import 'package:http/http.dart' as http;
 import 'package:intl/intl.dart';
+import 'package:provider/provider.dart';
+import 'package:src/auth/auth_store.dart';
 import 'package:src/pages/admin/animated_network_background.dart';
 import 'package:src/widgets/tecnico/home_tecnico/tecnico_drawer.dart';
+
+// ==========================================================
+// ===== MODELOS DE DADOS ===================================
+// ==========================================================
+
+// Modelo auxiliar para o Dropdown de locais (Copiado de Atividades.dart)
+class LocalFisico {
+  final int id;
+  final String nome;
+  LocalFisico({required this.id, required this.nome});
+  
+  factory LocalFisico.fromJson(Map<String, dynamic> json) {
+    return LocalFisico(
+      id: json['id'] as int,
+      nome: json['nome'] as String,
+    );
+  }
+}
 
 class _HistoricoItem {
   final String idMovimentacao;
   final String nome;
-  final String idDisplay; // Ex: INST0113 ou MAT001
-  final String? categoria; // Ex: "Cabos"
-  final String statusTag; // Ex: "Em Uso" ou "Devolvido"
+  final String idDisplay; 
+  final String? categoria; 
+  final String statusTag; 
   final bool isInstrumento;
 
   // Campos de Informação
@@ -16,7 +40,11 @@ class _HistoricoItem {
   final String finalidade;
   final DateTime dataRetirada;
   final DateTime previsaoDevolucao;
-  final DateTime? dataDevolucaoReal; // NULL se estiver "Em Uso"
+  final DateTime? dataDevolucaoReal;
+  
+  // NOVOS CAMPOS (Necessários para Devolução)
+  final double quantidadePendente;
+  final String? lote;
 
   _HistoricoItem({
     required this.idMovimentacao,
@@ -30,26 +58,30 @@ class _HistoricoItem {
     required this.dataRetirada,
     required this.previsaoDevolucao,
     this.dataDevolucaoReal,
+    required this.quantidadePendente,
+    this.lote,
   });
 
-  // Se a devolução real for nula, o item está "Em Uso"
   bool get emUso => dataDevolucaoReal == null;
 }
+
+// ==========================================================
+// ===== TELA PRINCIPAL =====================================
+// ==========================================================
 
 enum HistoricoTab { emUso, historico }
 
 class HistoricoUso extends StatefulWidget {
   const HistoricoUso({Key? key}) : super(key: key);
 
+  @override
   State<HistoricoUso> createState() => HistoricoUsoState();
 }
 
 class HistoricoUsoState extends State<HistoricoUso> {
+  static const String _apiHost = 'http://localhost:8080';
   
   HistoricoTab _selectedTab = HistoricoTab.emUso;
-  final TextEditingController _searchController = TextEditingController();
-
-  // --- Controle da API ---
   late Future<void> _loadFuture;
   bool _isLoading = true;
   String? _error;
@@ -61,32 +93,38 @@ class HistoricoUsoState extends State<HistoricoUso> {
     _loadFuture = _fetchData();
   }
 
-  // ================== LÓGICA DE DADOS (API) ==================
+  // ================== LÓGICA DE DADOS ==================
 
   Future<void> _fetchData() async {
-    setState(() {
-      _isLoading = true;
-      _error = null;
-    });
+    setState(() { _isLoading = true; _error = null; });
+
+    final auth = context.read<AuthStore>();
+    final token = auth.token;
+
+    if (token == null) {
+      setState(() { _isLoading = false; _error = "Usuário não autenticado."; });
+      return;
+    }
 
     try {
-      // Simulação de chamada de API
-      await Future.delayed(const Duration(milliseconds: 700));
+      List<_HistoricoItem> fetchedItems = [];
 
-      // TODO: Implementar chamada de API real
       if (_selectedTab == HistoricoTab.emUso) {
-        // API REAL: Chamar GET /movimentacoes/pendentes
-        // Por agora, usamos mock
-        _items = _getMockData(emUso: true);
+        fetchedItems = await _fetchEmUso(token);
       } else {
-        // API REAL: Chamar GET /movimentacoes/historico_usuario
-        // Por agora, usamos mock
-        _items = _getMockData(emUso: false);
+        // TODO: Implementar endpoint de histórico passado
+        fetchedItems = []; 
+      }
+
+      if (mounted) {
+        setState(() {
+          _items = fetchedItems;
+        });
       }
     } catch (e) {
       if (mounted) {
         setState(() {
-          _error = "Falha ao carregar dados: ${e.toString()}";
+          _error = "Erro ao carregar: ${e.toString().replaceAll('Exception: ', '')}";
         });
       }
     } finally {
@@ -98,22 +136,103 @@ class HistoricoUsoState extends State<HistoricoUso> {
     }
   }
 
-  // Recarrega os dados ao mudar de aba ou atualizar
-  void _reloadData() {
-    setState(() {
-      _loadFuture = _fetchData();
-    });
+  Future<List<_HistoricoItem>> _fetchEmUso(String token) async {
+    final uri = Uri.parse('$_apiHost/movimentacoes/pendentes');
+    final headers = {'Authorization': 'Bearer $token'};
+
+    final response = await http.get(uri, headers: headers).timeout(const Duration(seconds: 10));
+
+    if (response.statusCode == 200) {
+      final List<dynamic> data = json.decode(utf8.decode(response.bodyBytes));
+      
+      return data.map((json) {
+        final idMov = json['idMovimentacao'].toString();
+        final isInst = idMov.startsWith('inst');
+        // Parse seguro da quantidade
+        final qtdPendente = (json['quantidade_pendente'] as num?)?.toDouble() ?? 0.0;
+
+        String statusDisplay = 'Em Uso';
+        if (!isInst && qtdPendente > 0) {
+          statusDisplay = 'Em Uso ($qtdPendente)';
+        }
+
+        return _HistoricoItem(
+          idMovimentacao: idMov,
+          nome: json['nomeMaterial'] ?? 'Item',
+          idDisplay: json['idMaterial'] ?? '',
+          categoria: isInst ? 'Instrumento' : 'Material',
+          statusTag: statusDisplay,
+          isInstrumento: isInst,
+          destino: json['localizacao'] ?? 'N/A',
+          finalidade: 'Uso em serviço', // Placeholder (endpoint não retorna ainda)
+          dataRetirada: DateTime.tryParse(json['dataRetirada'] ?? '') ?? DateTime.now(),
+          previsaoDevolucao: DateTime.tryParse(json['dataDevolucao'] ?? '') ?? DateTime.now(),
+          dataDevolucaoReal: null,
+          // Novos campos mapeados
+          quantidadePendente: qtdPendente,
+          lote: json['lote'] as String?,
+        );
+      }).toList();
+    } else {
+      throw Exception('Falha na API (${response.statusCode})');
+    }
   }
 
-  // Alterna a aba selecionada
+  // ================== LÓGICA DE DEVOLUÇÃO ==================
+
+  void _handleDevolucao(_HistoricoItem item) {
+    final auth = context.read<AuthStore>();
+    final token = auth.token;
+
+    if (token == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Erro: Token de autenticação ausente.')),
+      );
+      return;
+    }
+
+    if (item.isInstrumento) {
+      showDialog(
+        context: context,
+        builder: (_) => _ModalDevolverInstrumento(
+          item: item,
+          token: token,
+          onSuccess: _onDevolucaoSuccess,
+        ),
+      );
+    } else {
+      showDialog(
+        context: context,
+        builder: (_) => _ModalDevolverMaterial(
+          item: item,
+          token: token,
+          onSuccess: _onDevolucaoSuccess,
+        ),
+      );
+    }
+  }
+
+  void _onDevolucaoSuccess() {
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(
+        content: Text('Devolução registrada com sucesso!'),
+        backgroundColor: Colors.green,
+      ),
+    );
+    // Recarrega a lista
+    _fetchData();
+  }
+
   void _onToggleChanged(HistoricoTab tab) {
     if (_selectedTab != tab) {
       setState(() {
         _selectedTab = tab;
       });
-      _reloadData();
+      _fetchData();
     }
   }
+
+  // ================== UI BUILD ==================
 
   @override
   Widget build(BuildContext context) {
@@ -142,30 +261,18 @@ class HistoricoUsoState extends State<HistoricoUso> {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              // Títulos
               const Text(
                 'Histórico de Uso',
-                style: TextStyle(
-                  color: Colors.white,
-                  fontWeight: FontWeight.bold,
-                  fontSize: 32,
-                ),
+                style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 32),
               ),
               const SizedBox(height: 8),
               const Text(
                 'Histórico completo de retiradas e devoluções',
-                style: TextStyle(
-                  color: Colors.white70,
-                  fontSize: 16,
-                ),
+                style: TextStyle(color: Colors.white70, fontSize: 16),
               ),
               const SizedBox(height: 24),
-
-              // --- Barra de Toggle (IMPLEMENTADA) ---
               _buildToggleButtons(),
               const SizedBox(height: 24),
-
-              // --- Conteúdo Principal (Lista) (IMPLEMENTADO) ---
               _buildBodyContent(),
             ],
           ),
@@ -174,7 +281,6 @@ class HistoricoUsoState extends State<HistoricoUso> {
     );
   }
 
-  // Constrói os botões de toggle (Em Uso / Histórico)
   Widget _buildToggleButtons() {
     bool isEmUso = _selectedTab == HistoricoTab.emUso;
     bool isHistorico = _selectedTab == HistoricoTab.historico;
@@ -193,7 +299,6 @@ class HistoricoUsoState extends State<HistoricoUso> {
     );
   }
 
-  // Item individual do toggle
   Widget _buildToggleItem(String titulo, bool isSelected, VoidCallback onTap) {
     return Expanded(
       child: GestureDetector(
@@ -219,33 +324,16 @@ class HistoricoUsoState extends State<HistoricoUso> {
     );
   }
 
-  // Constrói o corpo principal (Loading, Erro, ou Lista)
   Widget _buildBodyContent() {
     return FutureBuilder(
       future: _loadFuture,
       builder: (context, snapshot) {
         if (_isLoading) {
-          return const Center(
-            child: Padding(
-              padding: EdgeInsets.all(32.0),
-              child: CircularProgressIndicator(color: Colors.white),
-            ),
-          );
+          return const Center(child: Padding(padding: EdgeInsets.all(32.0), child: CircularProgressIndicator(color: Colors.white)));
         }
-
         if (_error != null) {
-          return Center(
-            child: Padding(
-              padding: const EdgeInsets.all(32.0),
-              child: Text(
-                _error!,
-                textAlign: TextAlign.center,
-                style: const TextStyle(color: Colors.redAccent, fontSize: 16),
-              ),
-            ),
-          );
+          return Center(child: Padding(padding: const EdgeInsets.all(32.0), child: Text(_error!, style: const TextStyle(color: Colors.redAccent))));
         }
-
         if (_items.isEmpty) {
           return const Center(
             child: Padding(
@@ -254,17 +342,13 @@ class HistoricoUsoState extends State<HistoricoUso> {
                 children: [
                   Icon(Icons.search_off, color: Colors.white30, size: 48),
                   SizedBox(height: 16),
-                  Text(
-                    "Nenhum item encontrado",
-                    style: TextStyle(color: Colors.white70, fontSize: 16),
-                  ),
+                  Text("Nenhum item encontrado", style: TextStyle(color: Colors.white70, fontSize: 16)),
                 ],
               ),
             ),
           );
         }
 
-        // Constrói a lista
         return ListView.separated(
           itemCount: _items.length,
           shrinkWrap: true,
@@ -273,14 +357,8 @@ class HistoricoUsoState extends State<HistoricoUso> {
           itemBuilder: (context, index) {
             return _HistoricoCard(
               item: _items[index],
-              onDevolver: () {
-                // TODO: Chamar o modal de devolução (Atividades.dart)
-                // A lógica de devolução pode ser extraída para um service
-                // ou o modal pode ser chamado aqui.
-                ScaffoldMessenger.of(context).showSnackBar(
-                  SnackBar(content: Text('TODO: Chamar devolução para ${ _items[index].idMovimentacao}')),
-                );
-              },
+              // Passa a função de devolução que abre o modal
+              onDevolver: () => _handleDevolucao(_items[index]),
             );
           },
         );
@@ -289,6 +367,9 @@ class HistoricoUsoState extends State<HistoricoUso> {
   }
 }
 
+// ==========================================================
+// ===== CARD DO HISTÓRICO ==================================
+// ==========================================================
 class _HistoricoCard extends StatelessWidget {
   final _HistoricoItem item;
   final VoidCallback onDevolver;
@@ -296,60 +377,39 @@ class _HistoricoCard extends StatelessWidget {
   const _HistoricoCard({required this.item, required this.onDevolver});
 
   String _formatarData(DateTime data) {
-    // Correção de fuso horário
-    final localData = data.toLocal(); 
-    return DateFormat('dd/MM/yyyy \'às\' HH:mm').format(localData);
+    return DateFormat('dd/MM/yyyy \'às\' HH:mm').format(data.toLocal());
   }
 
   @override
   Widget build(BuildContext context) {
-    // Define a cor de fundo (clara) e a cor do texto (escura)
-    // conforme a imagem (image_7728a3.png)
-    const Color cardColor = Color(0xFFE0E0E0); // Cinza claro
+    const Color cardColor = Color(0xFFE0E0E0);
     const Color textColor = Colors.black87;
     const Color titleColor = Colors.black;
 
     return Container(
       padding: const EdgeInsets.all(16),
-      decoration: BoxDecoration(
-        color: cardColor,
-        borderRadius: BorderRadius.circular(12),
-      ),
+      decoration: BoxDecoration(color: cardColor, borderRadius: BorderRadius.circular(12)),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          // --- Linha 1: Título e Tags ---
           Row(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              // Ícone
               Icon(
                 item.isInstrumento ? Icons.construction : Icons.inventory_2_outlined,
                 color: item.isInstrumento ? Colors.green.shade700 : Colors.blue.shade700,
                 size: 32,
               ),
               const SizedBox(width: 12),
-              // Título e ID
               Expanded(
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Text(
-                      item.nome,
-                      style: const TextStyle(
-                        color: titleColor,
-                        fontWeight: FontWeight.bold,
-                        fontSize: 18,
-                      ),
-                    ),
-                    Text(
-                      item.idDisplay,
-                      style: const TextStyle(color: textColor, fontSize: 14),
-                    ),
+                    Text(item.nome, style: const TextStyle(color: titleColor, fontWeight: FontWeight.bold, fontSize: 18)),
+                    Text(item.idDisplay, style: const TextStyle(color: textColor, fontSize: 14)),
                   ],
                 ),
               ),
-              // Tags
               Column(
                 crossAxisAlignment: CrossAxisAlignment.end,
                 children: [
@@ -371,35 +431,19 @@ class _HistoricoCard extends StatelessWidget {
             ],
           ),
           const SizedBox(height: 16),
-          // --- Linhas de Informação ---
-          _InfoLinha(
-            icon: Icons.location_on_outlined,
-            title: "Destino:",
-            value: item.destino,
-          ),
+          _InfoLinha(icon: Icons.location_on_outlined, title: "Destino:", value: item.destino),
           const SizedBox(height: 8),
           _InfoLinha(
             icon: Icons.schedule_outlined,
-            title: "Previsão de devolução:",
+            title: "Previsão:",
             value: _formatarData(item.previsaoDevolucao),
-            // Destaque se estiver atrasado (apenas se 'emUso')
-            valueColor: (item.emUso && item.previsaoDevolucao.isBefore(DateTime.now()))
-                ? Colors.red.shade700
-                : null,
+            valueColor: (item.emUso && item.previsaoDevolucao.isBefore(DateTime.now())) ? Colors.red.shade700 : null,
           ),
           const SizedBox(height: 8),
-          _InfoLinha(
-            icon: Icons.article_outlined,
-            title: "Finalidade:",
-            value: item.finalidade,
-          ),
+          _InfoLinha(icon: Icons.article_outlined, title: "Finalidade:", value: item.finalidade),
           const SizedBox(height: 8),
-          _InfoLinha(
-            icon: Icons.calendar_today_outlined,
-            title: "Retirado em:",
-            value: _formatarData(item.dataRetirada),
-          ),
-          // Mostra a data de devolução real se o item não estiver "Em Uso"
+          _InfoLinha(icon: Icons.calendar_today_outlined, title: "Retirado em:", value: _formatarData(item.dataRetirada)),
+          
           if (!item.emUso && item.dataDevolucaoReal != null) ...[
             const SizedBox(height: 8),
             _InfoLinha(
@@ -411,7 +455,6 @@ class _HistoricoCard extends StatelessWidget {
             ),
           ],
           
-          // --- Botão Devolver (Condicional) ---
           if (item.emUso) ...[
             const SizedBox(height: 16),
             SizedBox(
@@ -423,9 +466,7 @@ class _HistoricoCard extends StatelessWidget {
                 style: ElevatedButton.styleFrom(
                   backgroundColor: Colors.green.shade600,
                   foregroundColor: Colors.white,
-                  shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(8),
-                  ),
+                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
                 ),
               ),
             )
@@ -440,29 +481,13 @@ class _TagChip extends StatelessWidget {
   final String label;
   final Color backgroundColor;
   final Color textColor;
-
-  const _TagChip({
-    required this.label,
-    required this.backgroundColor,
-    required this.textColor,
-  });
-
+  const _TagChip({required this.label, required this.backgroundColor, required this.textColor});
   @override
   Widget build(BuildContext context) {
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
-      decoration: BoxDecoration(
-        color: backgroundColor,
-        borderRadius: BorderRadius.circular(6),
-      ),
-      child: Text(
-        label,
-        style: TextStyle(
-          color: textColor,
-          fontWeight: FontWeight.bold,
-          fontSize: 11,
-        ),
-      ),
+      decoration: BoxDecoration(color: backgroundColor, borderRadius: BorderRadius.circular(6)),
+      child: Text(label, style: TextStyle(color: textColor, fontWeight: FontWeight.bold, fontSize: 11)),
     );
   }
 }
@@ -473,101 +498,203 @@ class _InfoLinha extends StatelessWidget {
   final String value;
   final Color? iconColor;
   final Color? valueColor;
-
-  const _InfoLinha({
-    required this.icon,
-    required this.title,
-    required this.value,
-    this.iconColor,
-    this.valueColor,
-  });
-
+  const _InfoLinha({required this.icon, required this.title, required this.value, this.iconColor, this.valueColor});
   @override
   Widget build(BuildContext context) {
-    const Color defaultColor = Colors.black54; // Cor padrão escura
-    
     return Row(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Icon(icon, color: iconColor ?? defaultColor, size: 16),
+        Icon(icon, color: iconColor ?? Colors.black54, size: 16),
         const SizedBox(width: 8),
-        Text(
-          title,
-          style: const TextStyle(color: defaultColor),
-        ),
+        Text(title, style: const TextStyle(color: Colors.black54)),
         const SizedBox(width: 4),
-        Expanded(
-          child: Text(
-            value,
-            style: TextStyle(
-              color: valueColor ?? Colors.black87, // Valor padrão mais escuro
-              fontWeight: FontWeight.bold,
-            ),
-          ),
-        ),
+        Expanded(child: Text(value, style: TextStyle(color: valueColor ?? Colors.black87, fontWeight: FontWeight.bold))),
       ],
     );
   }
 }
 
 // ==========================================================
-// ===== DADOS MOCKADOS (PARA PREPARAÇÃO) ===================
+// ===== MODALS (PORTADOS DE ATIVIDADES.DART) ===============
 // ==========================================================
-List<_HistoricoItem> _getMockData({required bool emUso}) {
-  if (emUso) {
-    return [
-      _HistoricoItem(
-        idMovimentacao: 'inst-113',
-        nome: 'Osciloscópio Tektronix',
-        idDisplay: 'INST0113',
-        statusTag: 'Em Uso',
-        isInstrumento: true,
-        destino: 'Túnel Linha 3 - Km 8',
-        finalidade: 'Inspeção de segurança em espaço confinado durante manutenção de ventilação',
-        dataRetirada: DateTime.now().subtract(const Duration(days: 2, hours: 4)),
-        previsaoDevolucao: DateTime.now().subtract(const Duration(days: 1)), // Atrasado
+
+class _ModalDevolverInstrumento extends StatefulWidget {
+  final _HistoricoItem item; // Adaptado para _HistoricoItem
+  final String token;
+  final VoidCallback onSuccess;
+
+  const _ModalDevolverInstrumento({required this.item, required this.token, required this.onSuccess});
+
+  @override
+  State<_ModalDevolverInstrumento> createState() => _ModalDevolverInstrumentoState();
+}
+
+class _ModalDevolverInstrumentoState extends State<_ModalDevolverInstrumento> {
+  static const String _apiHost = 'http://localhost:8080';
+  bool _isLoading = false;
+  String? _error;
+
+  Future<void> _submit() async {
+    setState(() { _isLoading = true; _error = null; });
+    try {
+      final response = await http.post(
+        Uri.parse('$_apiHost/movimentacoes/devolucao'),
+        headers: {'Content-Type': 'application/json', 'Authorization': 'Bearer ${widget.token}'},
+        body: json.encode({'idMovimentacao': widget.item.idMovimentacao}),
+      );
+      if (!mounted) return;
+      if (response.statusCode == 200) {
+        Navigator.of(context).pop();
+        widget.onSuccess();
+      } else {
+        final Map<String, dynamic> errorData = json.decode(response.body);
+        setState(() { _error = errorData['error'] ?? 'Falha ao devolver.'; _isLoading = false; });
+      }
+    } catch (e) {
+      if (!mounted) return;
+      setState(() { _error = 'Erro de conexão: $e'; _isLoading = false; });
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return AlertDialog(
+      title: const Text('Confirmar Devolução'),
+      content: Text('Confirmar devolução de ${widget.item.nome} (${widget.item.idDisplay})?'),
+      actions: [
+        TextButton(onPressed: _isLoading ? null : () => Navigator.of(context).pop(), child: const Text('Cancelar')),
+        ElevatedButton(
+          onPressed: _isLoading ? null : _submit,
+          child: _isLoading ? const SizedBox(width: 20, height: 20, child: CircularProgressIndicator(strokeWidth: 2)) : const Text('Devolver'),
+        ),
+      ],
+    );
+  }
+}
+
+class _ModalDevolverMaterial extends StatefulWidget {
+  final _HistoricoItem item; // Adaptado
+  final String token;
+  final VoidCallback onSuccess;
+
+  const _ModalDevolverMaterial({required this.item, required this.token, required this.onSuccess});
+
+  @override
+  State<_ModalDevolverMaterial> createState() => _ModalDevolverMaterialState();
+}
+
+class _ModalDevolverMaterialState extends State<_ModalDevolverMaterial> {
+  static const String _apiHost = 'http://localhost:8080';
+  bool _isLoading = false;
+  bool _isLoadingLocais = true;
+  String? _error;
+  final TextEditingController _qtController = TextEditingController();
+  LocalFisico? _selectedDestinoLocal;
+  List<LocalFisico> _locais = [];
+
+  @override
+  void initState() {
+    super.initState();
+    _qtController.text = widget.item.quantidadePendente.toString();
+    _fetchLocais();
+  }
+
+  Future<void> _fetchLocais() async {
+    final uri = Uri.parse('$_apiHost/locais');
+    final headers = {'Authorization': 'Bearer ${widget.token}'};
+    try {
+      final response = await http.get(uri, headers: headers);
+      if (response.statusCode == 200) {
+        final List<dynamic> jsonList = jsonDecode(response.body)['data'] as List<dynamic>;
+        if (mounted) {
+          setState(() {
+            _locais = jsonList.map((j) => LocalFisico.fromJson(j as Map<String, dynamic>)).toList();
+            if (_locais.isNotEmpty) _selectedDestinoLocal = _locais.first;
+          });
+        }
+      }
+    } catch (e) { /* log error */ } finally {
+      if (mounted) setState(() => _isLoadingLocais = false);
+    }
+  }
+
+  Future<void> _submit() async {
+    setState(() { _isLoading = true; _error = null; });
+    final double? quantidade = double.tryParse(_qtController.text);
+    
+    if (quantidade == null || quantidade <= 0) {
+      setState(() { _error = 'Quantidade inválida.'; _isLoading = false; });
+      return;
+    }
+    if (quantidade > widget.item.quantidadePendente) {
+      setState(() { _error = 'Não pode devolver mais do que o pendente.'; _isLoading = false; });
+      return;
+    }
+    if (_selectedDestinoLocal == null) {
+      setState(() { _error = 'Selecione o local.'; _isLoading = false; });
+      return;
+    }
+
+    try {
+      final body = json.encode({
+        'idMovimentacao': widget.item.idMovimentacao,
+        'quantidade': quantidade,
+        'destino_local_id': _selectedDestinoLocal!.id,
+        'lote': widget.item.lote,
+      });
+      final response = await http.post(
+        Uri.parse('$_apiHost/movimentacoes/devolucao'),
+        headers: {'Content-Type': 'application/json', 'Authorization': 'Bearer ${widget.token}'},
+        body: body,
+      );
+      if (!mounted) return;
+      if (response.statusCode == 200) {
+        Navigator.of(context).pop();
+        widget.onSuccess();
+      } else {
+        final Map<String, dynamic> errorData = json.decode(response.body);
+        setState(() { _error = errorData['error'] ?? 'Falha.'; _isLoading = false; });
+      }
+    } catch (e) {
+      if (mounted) setState(() { _error = 'Erro de conexão: $e'; _isLoading = false; });
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return AlertDialog(
+      title: Text('Devolver ${widget.item.nome}'),
+      content: SingleChildScrollView(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text('Pendente: ${widget.item.quantidadePendente} (Lote: ${widget.item.lote ?? "N/A"})', style: const TextStyle(fontWeight: FontWeight.bold)),
+            const SizedBox(height: 16),
+            if (_isLoadingLocais) const Center(child: CircularProgressIndicator()) else ...[
+              TextField(
+                controller: _qtController,
+                keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                decoration: const InputDecoration(labelText: 'Quantidade', border: OutlineInputBorder()),
+              ),
+              const SizedBox(height: 16),
+              DropdownButtonFormField<LocalFisico>(
+                value: _selectedDestinoLocal,
+                isExpanded: true,
+                decoration: const InputDecoration(labelText: 'Local de Destino', border: OutlineInputBorder()),
+                items: _locais.map((l) => DropdownMenuItem(value: l, child: Text(l.nome))).toList(),
+                onChanged: (l) => setState(() => _selectedDestinoLocal = l),
+                hint: const Text('Selecione...'),
+              ),
+            ],
+            if (_error != null) ...[const SizedBox(height: 16), Text(_error!, style: const TextStyle(color: Colors.red))],
+          ],
+        ),
       ),
-      _HistoricoItem(
-        idMovimentacao: 'mat-33',
-        nome: 'Cabo Ethernet Cat6',
-        idDisplay: 'MAT001',
-        categoria: 'Cabos',
-        statusTag: 'Em Uso',
-        isInstrumento: false,
-        destino: 'Túnel Linha 3 - Km 8',
-        finalidade: 'Reparos de conexão da linha XYZ',
-        dataRetirada: DateTime.now().subtract(const Duration(days: 1)),
-        previsaoDevolucao: DateTime.now().add(const Duration(days: 1)), // No prazo
-      ),
-    ];
-  } else {
-    // Dados do Histórico (itens já devolvidos)
-    return [
-      _HistoricoItem(
-        idMovimentacao: 'inst-105',
-        nome: 'Analisador de Energia',
-        idDisplay: 'INST0105',
-        statusTag: 'Devolvido',
-        isInstrumento: true,
-        destino: 'Pátio Jabaquara - Manutenção',
-        finalidade: 'Análise de consumo do Bloco C',
-        dataRetirada: DateTime.now().subtract(const Duration(days: 10)),
-        previsaoDevolucao: DateTime.now().subtract(const Duration(days: 8)),
-        dataDevolucaoReal: DateTime.now().subtract(const Duration(days: 7)), // Data de devolução
-      ),
-      _HistoricoItem(
-        idMovimentacao: 'mat-20',
-        nome: 'Conector DB9 Macho',
-        idDisplay: 'MAT002',
-        categoria: 'Conectores',
-        statusTag: 'Devolvido',
-        isInstrumento: false,
-        destino: 'Sala de Controle (CCO)',
-        finalidade: 'Manutenção de console',
-        dataRetirada: DateTime.now().subtract(const Duration(days: 5)),
-        previsaoDevolucao: DateTime.now().subtract(const Duration(days: 4)),
-        dataDevolucaoReal: DateTime.now().subtract(const Duration(days: 4)), // Data de devolução
-      ),
-    ];
+      actions: [
+        TextButton(onPressed: _isLoading ? null : () => Navigator.of(context).pop(), child: const Text('Cancelar')),
+        ElevatedButton(onPressed: (_isLoading || _isLoadingLocais || _selectedDestinoLocal == null) ? null : _submit, child: _isLoading ? const SizedBox(width: 20, height: 20, child: CircularProgressIndicator(strokeWidth: 2)) : const Text('Confirmar')),
+      ],
+    );
   }
 }
