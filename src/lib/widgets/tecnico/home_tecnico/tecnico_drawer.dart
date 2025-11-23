@@ -69,23 +69,42 @@ class _TecnicoDrawerState extends State<TecnicoDrawer> {
       return null;
     }
 
-    // Usamos o endpoint de pendências, pois ele tem todos os dados
-    final uri = Uri.parse('$apiBaseUrl/movimentacoes/pendentes');
     final headers = _authHeaders(auth);
 
     try {
-      final response = await http.get(uri, headers: headers).timeout(const Duration(seconds: 5));
+      // Executa as duas chamadas em paralelo
+      final responses = await Future.wait([
+        // 1. Pendências (Materiais/Instrumentos em uso + Devoluções atrasadas)
+        http.get(
+          Uri.parse('$apiBaseUrl/movimentacoes/pendentes'), 
+          headers: headers
+        ).timeout(const Duration(seconds: 5)),
 
-      if (response.statusCode == 200) {
-        final List<dynamic> data = json.decode(utf8.decode(response.bodyBytes));
+        // 2. Calibrações Vencidas (Alertas de sistema)
+        http.get(
+          Uri.parse('$apiBaseUrl/instrumentos/catalogo').replace(
+            queryParameters: {'vencidos': 'true', 'ativo': 'true'}
+          ), 
+          headers: headers
+        ).timeout(const Duration(seconds: 5)),
+      ]);
+
+      final responsePendentes = responses[0];
+      final responseCalibracao = responses[1];
+
+      // Verifica se ambas tiveram sucesso
+      if (responsePendentes.statusCode == 200 && responseCalibracao.statusCode == 200) {
+        final List<dynamic> dataPendentes = json.decode(utf8.decode(responsePendentes.bodyBytes));
+        final List<dynamic> dataCalibracao = json.decode(utf8.decode(responseCalibracao.bodyBytes));
         
-        // Calcula os totais
         int matCount = 0;
         int instCount = 0;
-        int alertCount = 0;
+        int devolucaoAtrasadaCount = 0;
+        
+        final agora = DateTime.now();
 
-        for (var jsonItem in data) {
-          // Parse leve dos dados necessários
+        // Processa Pendências
+        for (var jsonItem in dataPendentes) {
           final isInst = (jsonItem['idMaterial'] as String?)?.startsWith('MAT') == false;
           final previsaoStr = jsonItem['dataDevolucao'] as String?;
           final previsao = DateTime.tryParse(previsaoStr ?? '');
@@ -96,23 +115,26 @@ class _TecnicoDrawerState extends State<TecnicoDrawer> {
             matCount++;
           }
           
-          if (previsao != null && previsao.isBefore(DateTime.now())) {
-            alertCount++;
+          // Conta atraso de devolução
+          if (previsao != null && previsao.isBefore(agora)) {
+            devolucaoAtrasadaCount++;
           }
         }
+
+        // Processa Calibrações (o tamanho da lista já é a quantidade de vencidos)
+        final int calibracaoVencidaCount = dataCalibracao.length;
         
         return _QuickStatus(
-          alertas: alertCount,
+          alertas: devolucaoAtrasadaCount + calibracaoVencidaCount, // Soma os dois tipos
           instrumentosEmUso: instCount,
           materiaisEmUso: matCount,
         );
+
       } else {
-        // Falha na API
-        print('Erro QuickStatus drawer (API): ${response.statusCode}');
+        print('Erro QuickStatus drawer (API): ${responsePendentes.statusCode} / ${responseCalibracao.statusCode}');
         return null;
       }
     } catch (e) {
-      // Erro de rede ou parse
       print('Erro QuickStatus drawer (Catch): ${e.toString()}');
       return null;
     }

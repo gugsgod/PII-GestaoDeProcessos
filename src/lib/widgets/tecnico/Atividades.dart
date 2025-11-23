@@ -168,19 +168,42 @@ class _AtividadesRecentesState extends State<AtividadesRecentes> {
 
   Widget _buildContent() {
     if (widget.isLoading) {
-      return const Center(
-        child: CircularProgressIndicator(color: Colors.black),
-      );
+      return const Center(child: CircularProgressIndicator(color: Colors.black));
     }
 
+    // 2. ERRO (UI MELHORADA - IGUAL ALERTAS)
     if (widget.error != null) {
-      return Padding(
-        padding: const EdgeInsets.all(16.0),
-        child: Center(
-          child: Text(
-            'Erro ao carregar atividades: ${widget.error}',
-            style: const TextStyle(color: Colors.redAccent),
-            textAlign: TextAlign.center,
+      return Center(
+        child: Padding(
+          padding: const EdgeInsets.all(24.0),
+          child: Column(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              const Icon(
+                Icons.error_outline, 
+                color: Colors.redAccent, 
+                size: 48
+              ),
+              const SizedBox(height: 16),
+              Text(
+                widget.error!.replaceAll("Exception: ", ""), // Limpa a msg
+                textAlign: TextAlign.center,
+                style: const TextStyle(
+                  color: Colors.redAccent, 
+                  fontSize: 16,
+                  fontWeight: FontWeight.w500
+                ),
+              ),
+              const SizedBox(height: 24),
+              ElevatedButton(
+                onPressed: widget.onReload, // Botão de Tentar Novamente
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: Colors.redAccent,
+                  foregroundColor: Colors.white
+                ),
+                child: const Text("Tentar Novamente"),
+              )
+            ],
           ),
         ),
       );
@@ -188,11 +211,10 @@ class _AtividadesRecentesState extends State<AtividadesRecentes> {
 
     final atividades = widget.atividades;
 
+    // 3. LISTA VAZIA
     if (atividades.isEmpty) {
-      // ... (Widget de 'Tudo em ordem!')
       return Center(
         child: Column(
-          // ... (código do 'Tudo em ordem') ...
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
             Container(
@@ -201,30 +223,18 @@ class _AtividadesRecentesState extends State<AtividadesRecentes> {
                 color: Colors.green.withOpacity(0.15),
                 shape: BoxShape.circle,
               ),
-              child: Icon(
-                Icons.check_circle_outline, // Ícone de "tudo certo"
-                color: Colors.green.shade300,
-                size: 40,
-              ),
+              child: Icon(Icons.check_circle_outline, color: Colors.green.shade300, size: 40),
             ),
             const SizedBox(height: 24),
             const Text(
               "Tudo em ordem!",
-              style: TextStyle(
-                color: Colors.black,
-                fontSize: 18,
-                fontWeight: FontWeight.bold
-              ),
+              style: TextStyle(color: Colors.black, fontSize: 18, fontWeight: FontWeight.bold),
             ),
             const SizedBox(height: 8),
             const Text(
               "Você não possui instrumentos ou materiais pendentes.",
-              style: TextStyle(
-                color: Colors.blueGrey,
-                fontSize: 15,
-              ),
+              style: TextStyle(color: Colors.blueGrey, fontSize: 15),
               textAlign: TextAlign.center,
-              overflow: TextOverflow.visible,
             ),
           ],
         ),

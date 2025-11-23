@@ -56,7 +56,6 @@ class _HomeTecnicoState extends State<HomeTecnico> {
   }
 
   Future<void> _atualizaDados() async {
-    // 1. Inicia o estado de loading
     setState(() {
       _loadingStats = true;
       _loadingAtividades = true;
@@ -75,30 +74,46 @@ class _HomeTecnicoState extends State<HomeTecnico> {
       return;
     }
 
-    // 2. Chama a API de pendências
-    final uri = Uri.parse('$apiBaseUrl/movimentacoes/pendentes');
+    // Prepara as duas URIs
+    final uriPendentes = Uri.parse('$apiBaseUrl/movimentacoes/pendentes');
+    final uriCalibracao = Uri.parse('$apiBaseUrl/instrumentos/catalogo').replace(
+      queryParameters: {'vencidos': 'true', 'ativo': 'true'}
+    );
+    
     final headers = {'Authorization': 'Bearer $token'};
 
     try {
-      final response = await http.get(uri, headers: headers).timeout(const Duration(seconds: 5));
+      // Executa as duas chamadas em paralelo para ser mais rápido
+      final responses = await Future.wait([
+        http.get(uriPendentes, headers: headers).timeout(const Duration(seconds: 5)),
+        http.get(uriCalibracao, headers: headers).timeout(const Duration(seconds: 5)),
+      ]);
+
+      final responsePendentes = responses[0];
+      final responseCalibracao = responses[1];
 
       if (!mounted) return;
 
-      if (response.statusCode == 200) {
-        final List<dynamic> data = json.decode(utf8.decode(response.bodyBytes));
+      // 1. Processa Pendências (Materiais/Instrumentos em uso)
+      if (responsePendentes.statusCode == 200) {
+        final List<dynamic> data = json.decode(utf8.decode(responsePendentes.bodyBytes));
         final atividades = data.map((json) => Atividade.fromJson(json)).toList();
         
-        // 3. CALCULA OS STATS (O PONTO CHAVE)
-        _calcularStatsDaLista(atividades);
+        // Guardamos na variável para a lista de baixo
+        _atividadesRecentes = atividades; 
         
-        setState(() {
-          _atividadesRecentes = atividades;
-          _loadingStats = false;
-          _loadingAtividades = false;
-        });
+        // Calculamos estatísticas de uso e atraso de devolução
+        _calcularStatsCombinados(atividades, responseCalibracao);
+        
       } else {
-        throw Exception('Falha ao carregar pendências: ${response.statusCode}');
+        throw Exception('Falha ao carregar pendências: ${responsePendentes.statusCode}');
       }
+
+      setState(() {
+        _loadingStats = false;
+        _loadingAtividades = false;
+      });
+
     } catch (e) {
       if (mounted) {
         final errorMsg = e.toString().replaceAll("Exception: ", "");
@@ -111,11 +126,13 @@ class _HomeTecnicoState extends State<HomeTecnico> {
     }
   }
 
-  void _calcularStatsDaLista(List<Atividade> atividades) {
+  void _calcularStatsCombinados(List<Atividade> atividades, http.Response responseCalibracao) {
     int matCount = 0;
     int instCount = 0;
-    int alertCount = 0;
+    int devolucoesAtrasadasCount = 0;
+    int calibracaoVencidaCount = 0;
 
+    // 1. Contagem de Pendências (Em uso e Atrasos de Devolução)
     for (var item in atividades) {
       if (item.isInstrumento) {
         instCount++;
@@ -124,15 +141,26 @@ class _HomeTecnicoState extends State<HomeTecnico> {
       }
       
       if (item.isAtrasado) {
-        alertCount++;
+        devolucoesAtrasadasCount++;
       }
+    }
+
+    // 2. Contagem de Calibrações Vencidas (Vinda da API)
+    if (responseCalibracao.statusCode == 200) {
+      final List<dynamic> dataCalib = json.decode(utf8.decode(responseCalibracao.bodyBytes));
+      calibracaoVencidaCount = dataCalib.length;
+    } else {
+      print('Erro ao carregar calibrações para contagem: ${responseCalibracao.statusCode}');
+      // Se falhar, assumimos 0 para não quebrar a tela inteira
     }
     
     // Atualiza as variáveis de estado
     _materiaisEmUso = matCount;
     _instrumentosEmUso = instCount;
-    _devolucoesPendentes = matCount + instCount; // Total
-    _alertasAtivos = alertCount;
+    _devolucoesPendentes = matCount + instCount;
+    
+    // SOMA OS DOIS TIPOS DE ALERTA
+    _alertasAtivos = devolucoesAtrasadasCount + calibracaoVencidaCount;
   }
 
   Widget _buildAtividadesSection(bool isDesktop) {

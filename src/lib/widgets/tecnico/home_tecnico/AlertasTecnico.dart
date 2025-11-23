@@ -73,53 +73,86 @@ class _AlertasTecnicoState extends State<AlertasTecnico> {
     };
 
     try {
-      final calibracaoResponseFuture = http
-          .get(Uri.parse('$_apiHost/instrumentos'), headers: headers)
-          .timeout(const Duration(seconds: 5));
+      // Executa as duas chamadas em paralelo para ser mais rápido
+      final responses = await Future.wait([
+        // 1. Busca Calibrações Vencidas
+        http.get(
+          Uri.parse('$_apiHost/instrumentos/catalogo').replace(queryParameters: {'vencidos': 'true', 'ativo': 'true'}),
+          headers: headers
+        ).timeout(const Duration(seconds: 5)),
 
-      final devolucoesResponseFuture = Future.value(<_Alerta>[]);
-      // TODO: Substituir quando tiver o endpoint
-
-      final response = await Future.wait([
-        calibracaoResponseFuture,
-        devolucoesResponseFuture
+        // 2. Busca Pendências (Para checar atraso na devolução)
+        http.get(
+          Uri.parse('$_apiHost/movimentacoes/pendentes'),
+          headers: headers
+        ).timeout(const Duration(seconds: 5)),
       ]);
 
-      final List<_Alerta> alertasCalibracao = [];
-      if (response[0] is http.Response) {
-        final res = response[0] as http.Response;
-        if (res.statusCode == 200) {
-          final List<dynamic> data = json.decode(utf8.decode(res.bodyBytes));
-          final agora = DateTime.now();
+      final calibracaoResponse = responses[0];
+      final pendenciasResponse = responses[1];
 
-          for (var json in data) {
-            final dataVencimentoStr = json['proxima_calibracao_em'];
-            if (dataVencimentoStr != null) {
-              final dataVencimento = DateTime.tryParse(dataVencimentoStr);
-              if (dataVencimento != null && dataVencimento.isBefore(agora)) {
-                alertasCalibracao.add(_Alerta(titulo: 'Calibração Vencida', nomeMaterial: json['descricao'] ?? 'Instrumentos S/ Nome', diasAtraso: agora.difference(dataVencimento).inDays,));
-              }
+      final List<_Alerta> alertas = [];
+      final agora = DateTime.now();
+
+      // --- Processa Calibração ---
+      if (calibracaoResponse.statusCode == 200) {
+        final List<dynamic> data = json.decode(utf8.decode(calibracaoResponse.bodyBytes));
+        for (var jsonItem in data) {
+          final dataVencimentoStr = jsonItem['proxima_calibracao_em'];
+          if (dataVencimentoStr != null) {
+            final dataVencimento = DateTime.tryParse(dataVencimentoStr);
+            if (dataVencimento != null && dataVencimento.isBefore(agora)) {
+              alertas.add(_Alerta(
+                titulo: 'Calibração Vencida',
+                nomeMaterial: jsonItem['descricao'] ?? 'Instrumento',
+                diasAtraso: agora.difference(dataVencimento).inDays,
+              ));
             }
           }
-        } else {
-          print('Falha ao buscar alertas de calibração: ${res.statusCode}');
         }
+      } else {
+        throw Exception('Erro ${calibracaoResponse.statusCode}: Falha ao buscar calibrações.');
       }
 
-      final List<_Alerta> alertasDevolucao = response[1] as List<_Alerta>;
+      // --- Processa Devoluções Atrasadas ---
+      if (pendenciasResponse.statusCode == 200) {
+        final List<dynamic> data = json.decode(utf8.decode(pendenciasResponse.bodyBytes));
+        
+        for (var jsonItem in data) {
+          final previsaoStr = jsonItem['dataDevolucao'];
+          if (previsaoStr != null) {
+            final previsao = DateTime.tryParse(previsaoStr);
+            // Se a data de previsão for ANTERIOR a agora, está atrasado
+            if (previsao != null && previsao.isBefore(agora)) {
+              final nome = jsonItem['nomeMaterial'] ?? 'Item desconhecido';
+              final tipo = (jsonItem['idMaterial'] as String?)?.startsWith('MAT') == true ? 'Material' : 'Instrumento';
+              
+              alertas.add(_Alerta(
+                titulo: 'Devolução Atrasada',
+                nomeMaterial: nome,
+                diasAtraso: agora.difference(previsao).inDays,
+              ));
+            }
+          }
+        }
+      } else {
+        throw Exception('Erro ${pendenciasResponse.statusCode}: Falha ao buscar pendências.');
+      }
 
-      return [...alertasDevolucao, ...alertasCalibracao];
+      // Ordena: Mais atrasados primeiro
+      alertas.sort((a, b) => b.diasAtraso.compareTo(a.diasAtraso));
+
+      return alertas;
 
     } on TimeoutException {
-      throw Exception('Servidor não respondeu a tempo (Timeout).');
+      throw Exception('Tempo esgotado. Verifique sua conexão.');
     } on SocketException {
-      throw Exception('Falha ao se conectar. Verifique a rede ou o servidor.');
+      throw Exception('Sem conexão com o servidor.');
     } on http.ClientException catch (e) {
-      throw Exception('Erro de conexão (CORS ou DNS): ${e.message}');
+      throw Exception('Erro de rede: ${e.message}');
     } catch (e) {
-      throw Exception('Erro desconhecido: ${e.toString()}');
+      throw Exception('Erro desconhecido: $e');
     }
-
   }
 
   @override
@@ -162,13 +195,29 @@ class _AlertasTecnicoState extends State<AlertasTecnico> {
 
               // 2. Estado de Erro
               if (snapshot.hasError) {
-                return Padding(
-                  padding: const EdgeInsets.all(16.0),
-                  child: Center(
-                    child: Text(
-                      'Erro ao carregar alertas: ${snapshot.error}',
-                      style: const TextStyle(color: Colors.redAccent),
-                      textAlign: TextAlign.center,
+                return Center(
+                  child: Padding(
+                    padding: const EdgeInsets.all(24.0),
+                    child: Column(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        const Icon(Icons.error_outline, color: Colors.redAccent, size: 40),
+                        const SizedBox(height: 16),
+                        Text(
+                          snapshot.error.toString().replaceAll("Exception: ", ""),
+                          textAlign: TextAlign.center,
+                          style: const TextStyle(color: Colors.redAccent, fontSize: 16),
+                        ),
+                        const SizedBox(height: 16),
+                        ElevatedButton(
+                          onPressed: _carregar, // Botão de Tentar Novamente
+                          style: ElevatedButton.styleFrom(
+                            backgroundColor: Colors.redAccent,
+                            foregroundColor: Colors.white
+                          ),
+                          child: const Text("Tentar Novamente"),
+                        )
+                      ],
                     ),
                   ),
                 );
