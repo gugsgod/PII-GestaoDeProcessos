@@ -1,7 +1,8 @@
 import 'package:backend/api_utils.dart';
 import 'package:dart_frog/dart_frog.dart';
 import 'package:postgres/postgres.dart';
-import 'package:dart_jsonwebtoken/dart_jsonwebtoken.dart'; // NECESSÁRIO PARA JWT
+import 'package:dart_jsonwebtoken/dart_jsonwebtoken.dart';
+import 'package:test/expect.dart'; // NECESSÁRIO PARA JWT
 
 const int _SAP_MIN = 15000000;
 const int _SAP_MAX = 15999999;
@@ -35,6 +36,10 @@ Future<Response> onRequest(RequestContext context) async {
       final guard = await requireAdmin(context);
       if (guard != null) return guard;
       return _create(context);
+    case HttpMethod.patch:
+      final guard = await requireAdmin(context);
+      if (guard != null) return guard;
+      return _patch(context);
     case HttpMethod.delete:
       final guard2 = await requireAdmin(context);
       if (guard2 != null) return guard2;
@@ -263,6 +268,76 @@ Future<Response> _create(RequestContext context) async {
   } catch (e, st) {
     print('POST /materiais error: $e\n$st');
     return jsonServer({'error': 'Erro interno ao criar material.'});
+  }
+}
+
+Future<Response> _patch(RequestContext context) async {
+  final connection = context.read<Connection>();
+  
+  try {
+    final body = await readJson(context);
+    
+    // O ID (interno do banco) é obrigatório para saber quem editar
+    final id = body['id'] as int?; 
+    if (id == null) {
+      return jsonBad({'error': 'ID do material é obrigatório.'});
+    }
+
+    // Campos atualizáveis
+    final codSap = body['cod_sap'] as int?;
+    final descricao = (body['descricao'] as String?)?.trim();
+    final apelido = (body['apelido'] as String?)?.trim();
+    final categoria = (body['categoria'] as String?)?.trim();
+    final unidade = (body['unidade'] as String?)?.trim();
+    final ativo = body['ativo'] as bool?; // Pode reativar/desativar
+
+    // Validações básicas se os campos forem enviados
+    if (codSap != null && !_isValidSap(codSap)) {
+      return jsonBad({'error': 'cod_sap inválido.'});
+    }
+    if (descricao != null && descricao.isEmpty) {
+      return jsonBad({'error': 'Descrição não pode ser vazia.'});
+    }
+
+    // Query dinâmica (só atualiza o que foi enviado)
+    // Monta a lista de SETs
+    final sets = <String>[];
+    final params = <String, dynamic>{'id': id};
+
+    if (codSap != null) { sets.add('cod_sap = @codSap'); params['codSap'] = codSap; }
+    if (descricao != null) { sets.add('descricao = @descricao'); params['descricao'] = descricao; }
+    if (apelido != null) { sets.add('apelido = @apelido'); params['apelido'] = apelido; }
+    if (categoria != null) { sets.add('categoria = @categoria'); params['categoria'] = categoria; }
+    if (unidade != null) { sets.add('unidade = @unidade'); params['unidade'] = unidade; }
+    if (ativo != null) { sets.add('ativo = @ativo'); params['ativo'] = ativo; }
+
+    if (sets.isEmpty) {
+      return jsonOk({'message': 'Nada a atualizar.'});
+    }
+
+    final result = await connection.execute(
+      Sql.named('''
+        UPDATE materiais
+        SET ${sets.join(', ')}
+        WHERE id = @id
+        RETURNING id, descricao
+      '''),
+      parameters: params,
+    );
+
+    if (result.isEmpty) {
+      return jsonNotFound('Material não encontrado.');
+    }
+
+    return jsonOk({'message': 'Material atualizado com sucesso.'});
+
+  } on PgException catch (e) {
+    // if (e.code == '23505') { // Unique violation (cod_sap duplicado)
+    //    return jsonBad({'error': 'Código SAP já existe em outro material.'});
+    // }
+    return jsonServer({'error': 'Erro no banco de dados', 'detail': e.message});
+  } catch (e) {
+    return jsonServer({'error': 'Erro interno: $e'});
   }
 }
 

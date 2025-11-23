@@ -125,14 +125,9 @@ class _MateriaisAdminPageState extends State<MateriaisAdminPage> {
 
     try {
       final response = await http.get(
-        // Assuming your base URL is correctly defined elsewhere
         Uri.parse('$apiBaseUrl/locais'),
         headers: {'Authorization': 'Bearer $token'},
       );
-
-      // --- DEBUG AQUI ---
-      print('Status Code GET /locais: ${response.statusCode}');
-      // --- FIM DEBUG ---
 
       if (response.statusCode == 200) {
         final List<dynamic> jsonList = jsonDecode(response.body)['data'] as List<dynamic>;
@@ -142,7 +137,6 @@ class _MateriaisAdminPageState extends State<MateriaisAdminPage> {
           });
         }
       } 
-      // ... (Error handling omitted for brevity) ...
     } catch (e) {
       print('Erro de rede ao buscar locais: $e');
     } finally {
@@ -160,8 +154,6 @@ class _MateriaisAdminPageState extends State<MateriaisAdminPage> {
       _errorMessage = null;
     });
 
-    const String baseUrl = "http://localhost:8080";
-
     final queryParams = <String, String>{"limit": "100", "page": "1"};
 
     final searchQuery = _searchController.text.trim();
@@ -173,9 +165,7 @@ class _MateriaisAdminPageState extends State<MateriaisAdminPage> {
       queryParams["categoria"] = _selectedCategory;
     }
 
-    final uri = Uri.parse(
-      "$baseUrl/materiais",
-    ).replace(queryParameters: queryParams);
+    final uri = Uri.parse("$apiBaseUrl/materiais").replace(queryParameters: queryParams);
 
     try {
       final response = await http.get(
@@ -207,9 +197,8 @@ class _MateriaisAdminPageState extends State<MateriaisAdminPage> {
     _fetchMateriais();
   }
 
-  // ---- Chama a API ----
+  // ---- API POST (CRIAR) ----
   Future<void> _addNewMaterial(Map<String, dynamic> data) async {
-    // 1. Obter o token (NECESSÁRIO PARA O POST)
     final token = Provider.of<AuthStore>(context, listen: false).token;
     if (token == null) return;
 
@@ -220,153 +209,186 @@ class _MateriaisAdminPageState extends State<MateriaisAdminPage> {
           'Content-Type': 'application/json',
           'Authorization': 'Bearer $token',
         },
-        body: jsonEncode({
-          'cod_sap': data['cod_sap'],
-          'descricao': data['descricao'],
-          'apelido': data['apelido'],
-          'categoria': data['categoria'],
-          'unidade': data['unidade'],
-          'ativo': data['ativo'],
-          'quantidade_inicial': data['quantidade_inicial'],
-          'local_id': data['local_id'],
-          'lote': data['lote'],
-        })
+        body: jsonEncode(data)
       );
 
       if (response.statusCode == 201) {
-        _showSnackBar(
-          "Material '${data['descricao']}' cadastrado com sucesso!",
-          isError: false,
-        );
-        _fetchMateriais(); // Atualiza a lista
+        _showSnackBar("Material cadastrado com sucesso!", isError: false);
+        _fetchMateriais(); 
       } else {
         final errorBody = json.decode(utf8.decode(response.bodyBytes));
         throw Exception(errorBody["error"] ?? "Falha ao cadastrar material");
       }
     } catch (e) {
-      _showSnackBar(
-        "Erro: ${e.toString().replaceAll("Exception: ", "")}",
-        isError: true,
-      );
+      _showSnackBar("Erro: ${e.toString().replaceAll("Exception: ", "")}", isError: true);
     }
   }
 
-void _showAddMaterialDialog() {
-    if (_isLoadingLocais) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Aguarde, carregando locais disponíveis...')),
+  // ---- API PATCH (EDITAR) ----
+  Future<void> _editMaterial(int id, Map<String, dynamic> data) async {
+    final token = Provider.of<AuthStore>(context, listen: false).token;
+    if (token == null) return;
+
+    try {
+      // Garante que o ID está no corpo
+      data['id'] = id;
+      
+      final response = await http.patch(
+        Uri.parse('$apiBaseUrl/materiais'),
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': 'Bearer $token',
+        },
+        body: jsonEncode(data)
       );
+
+      if (response.statusCode == 200) {
+        _showSnackBar("Material atualizado com sucesso!", isError: false);
+        _fetchMateriais(); 
+      } else {
+        final errorBody = json.decode(utf8.decode(response.bodyBytes));
+        throw Exception(errorBody["error"] ?? "Falha ao atualizar material");
+      }
+    } catch (e) {
+      _showSnackBar("Erro ao editar: ${e.toString().replaceAll("Exception: ", "")}", isError: true);
+    }
+  }
+
+  Future<void> _performStockAdjustment(int materialId, Map<String, dynamic> data) async {
+    final token = Provider.of<AuthStore>(context, listen: false).token;
+    if (token == null) return;
+
+    // Prepara o corpo
+    data['material_id'] = materialId;
+
+    try {
+      final response = await http.post(
+        Uri.parse('$apiBaseUrl/movimentacoes/ajuste'), // Endpoint novo
+        headers: {'Content-Type': 'application/json', 'Authorization': 'Bearer $token'},
+        body: jsonEncode(data),
+      );
+
+      if (response.statusCode == 200) {
+        _showSnackBar("Estoque ajustado com sucesso!", isError: false);
+      } else {
+        final err = jsonDecode(utf8.decode(response.bodyBytes));
+        throw Exception(err['error'] ?? 'Falha no ajuste');
+      }
+    } catch (e) {
+      _showSnackBar("Erro no ajuste: $e", isError: true);
+    }
+  }
+
+  // ---- ABERTURA DO DIALOG (CRIAR OU EDITAR) ----
+  void _showMaterialDialog({MaterialItem? material}) {
+    // Se for criação, precisamos dos locais. Se for edição, não necessariamente (só se formos editar estoque, mas aqui editamos cadastro)
+    // Por segurança, barramos se locais não carregaram e é criação.
+    if (material == null && (_isLoadingLocais || _locais.isEmpty)) {
+      _showSnackBar(_isLoadingLocais ? "Carregando locais..." : "Nenhum local cadastrado!", isError: true);
       return;
     }
 
     showDialog(
       context: context,
       builder: (context) {
-        return _AddMaterialDialog(
-          // TODO: parâmetro categorias
+        return _AddOrEditMaterialDialog(
+          // Passa categorias filtradas (sem 'Todas')
           categories: _categories.where((c) => c != 'Todas as Categorias').toList(),
-          locaisDisponiveis: _locais, // <-- PASSANDO LOCAIS
-          onMaterialAdded: (data) async {
-            await _addNewMaterial(data);
-            Navigator.of(context).pop();
-            _fetchMateriais();
+          locaisDisponiveis: _locais,
+          materialParaEditar: material, // NULL = CRIAÇÃO, OBJETO = EDIÇÃO
+          onSave: (data) async {
+            if (material == null) {
+              await _addNewMaterial(data);
+            } else {
+              await _editMaterial(material.id, data);
+            }
+            if (mounted) Navigator.of(context).pop();
           },
         );
       },
     );
   }
 
-  void _removeMaterial(MaterialItem material) async {
-    // Mostra o dialog de confirmação
-    final bool? confirmed = await _showDeleteConfirmDialog(material);
+  void _showStockAdjustmentDialog(MaterialItem material) {
+    if (_isLoadingLocais || _locais.isEmpty) {
+      _showSnackBar("Carregando locais...", isError: true);
+      return;
+    }
+    showDialog(
+      context: context,
+      builder: (context) => _AjusteEstoqueDialog(
+        material: material,
+        locaisDisponiveis: _locais,
+        onSave: (data) async {
+          await _performStockAdjustment(material.id, data);
+          if (mounted) Navigator.of(context).pop();
+        },
+      ),
+    );
+  }
 
-    // Se o usuário confirmou (true) e o widget ainda está "montado" (na tela)
+  // ---- API DELETE (REMOVER/DESATIVAR) ----
+  void _removeMaterial(MaterialItem material) async {
+    final bool? confirmed = await _showDeleteConfirmDialog(material);
     if (confirmed == true && mounted) {
-      // Chama a função que executa a exclusão
       await _performDelete(material);
     }
   }
 
-  /// 2. Executa a chamada de API DELETE
   Future<void> _performDelete(MaterialItem material) async {
-    // Pega o token de autenticação
-    final auth = context.read<AuthStore>();
-    final token = auth.token;
+    final token = Provider.of<AuthStore>(context, listen: false).token;
     if (token == null) {
       _showSnackBar("Erro: Usuário não autenticado.", isError: true);
       return;
     }
 
-    // O backend espera um 'id' (int), mas o modelo 'Instrument' tem 'id' (String).
-    // Precisamos converter.
     final int codSap = material.codigoSap;
-
-    // Prepara a chamada de API
-    final uri = Uri.parse("$apiBaseUrl/materiais"); // Rota do backend
+    final uri = Uri.parse("$apiBaseUrl/materiais"); 
 
     try {
       final response = await http.delete(
         uri,
         headers: {
           "Content-Type": "application/json",
-          "Accept": "application/json",
           "Authorization": "Bearer $token",
         },
-        // O backend (index.dart) espera o ID no corpo da requisição
         body: json.encode({'cod_sap': codSap}),
       );
 
-      // 204 (No Content) é a resposta padrão de sucesso para DELETE
       if (response.statusCode == 204 || response.statusCode == 200) {
-        _showSnackBar(
-          "Instrumento '${material.descricao}' removido com sucesso!",
-          isError: false,
-        );
-        _fetchMateriais(); // Atualiza a lista de instrumentos
+        _showSnackBar("Material '${material.descricao}' removido com sucesso!", isError: false);
+        _fetchMateriais();
       } else {
-        // Trata erros (como 404 - Não encontrado, 500 - Erro de servidor)
         final errorBody = json.decode(utf8.decode(response.bodyBytes));
-        throw Exception(errorBody["error"] ?? "Falha ao remover instrumento");
+        throw Exception(errorBody["error"] ?? "Falha ao remover material");
       }
     } catch (e) {
-      // Trata erros de conexão ou outros
-      _showSnackBar(
-        "Erro: ${e.toString().replaceAll("Exception: ", "")}",
-        isError: true,
-      );
+      _showSnackBar("Erro: ${e.toString().replaceAll("Exception: ", "")}", isError: true);
     }
   }
 
   Future<bool?> _showDeleteConfirmDialog(MaterialItem material) {
-    const Color primaryColor = Color(0xFF080023); // Cor do tema escuro
+    const Color primaryColor = Color(0xFF080023);
 
     return showDialog<bool>(
       context: context,
       builder: (BuildContext context) {
         return AlertDialog(
           backgroundColor: primaryColor,
-          title: const Text(
-            'Confirmar Exclusão',
-            style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold),
-          ),
+          title: const Text('Confirmar Exclusão', style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
           content: Text(
-            "Tem certeza que deseja remover o instrumento:\n\n'${material.descricao}' (Patrimônio: ${material.codigoSap})?\n\nEsta ação não pode ser desfeita.",
+            "Tem certeza que deseja remover o material:\n\n'${material.descricao}' (SAP: ${material.codigoSap})?\n\nEsta ação o marcará como inativo.",
             style: const TextStyle(color: Colors.white70),
           ),
           actions: [
             TextButton(
-              onPressed: () =>
-                  Navigator.of(context).pop(false), // Retorna 'false'
-              child: const Text(
-                'Cancelar',
-                style: TextStyle(color: Colors.white70),
-              ),
+              onPressed: () => Navigator.of(context).pop(false),
+              child: const Text('Cancelar', style: TextStyle(color: Colors.white70)),
             ),
             ElevatedButton(
-              onPressed: () =>
-                  Navigator.of(context).pop(true), // Retorna 'true'
+              onPressed: () => Navigator.of(context).pop(true),
               style: ElevatedButton.styleFrom(
-                backgroundColor: Colors.red.shade800, // Cor de perigo
+                backgroundColor: Colors.red.shade800,
                 foregroundColor: Colors.white,
               ),
               child: const Text('Excluir'),
@@ -376,6 +398,54 @@ void _showAddMaterialDialog() {
       },
     );
   }
+  
+  void _showSnackBar(String message, {bool isError = false}) {
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(message),
+        backgroundColor: isError ? Colors.red.shade800 : Colors.green.shade800,
+        behavior: SnackBarBehavior.floating,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+        margin: const EdgeInsets.all(24),
+      ),
+    );
+  }
+
+  Future<void> _exportarPDF() async {
+    final pdf = pw.Document();
+    final font = await PdfGoogleFonts.nunitoExtraLight();
+
+    pdf.addPage(
+      pw.MultiPage(
+        pageFormat: PdfPageFormat.a4,
+        theme: pw.ThemeData.withFont(base: font),
+        build: (pw.Context context) {
+          return [
+            pw.Center(child: pw.Text('Relatório de Materiais', style: pw.TextStyle(fontSize: 20, fontWeight: pw.FontWeight.bold))),
+            pw.SizedBox(height: 20),
+            pw.Table.fromTextArray(
+              headers: ['Cód. SAP', 'Nome', 'Categoria', 'Unidade', 'Status'],
+              data: _materiais.map((m) => [
+                m.codigoSap.toString(),
+                m.descricao,
+                m.categoria ?? '-',
+                m.unidade ?? '-',
+                m.status,
+              ]).toList(),
+              headerStyle: pw.TextStyle(fontWeight: pw.FontWeight.bold),
+              cellStyle: const pw.TextStyle(fontSize: 10),
+              border: pw.TableBorder.all(width: 0.5, color: PdfColors.grey),
+              headerDecoration: const pw.BoxDecoration(color: PdfColors.grey300),
+            ),
+          ];
+        },
+      ),
+    );
+
+    await Printing.sharePdf(bytes: await pdf.save(), filename: 'materiais.pdf');
+  }
+
 
   @override
   Widget build(BuildContext context) {
@@ -389,51 +459,25 @@ void _showAddMaterialDialog() {
         toolbarHeight: 80,
         backgroundColor: secondaryColor,
         elevation: 0,
-        flexibleSpace: const AnimatedNetworkBackground(
-          numberOfParticles: 35,
-          maxDistance: 50.0,
-        ),
-        title: const Text(
-          'Materiais',
-          style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold),
-        ),
+        flexibleSpace: const AnimatedNetworkBackground(numberOfParticles: 35, maxDistance: 50.0),
+        title: const Text('Materiais', style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
         iconTheme: const IconThemeData(color: Colors.white),
         actions: [
-          Padding(
-            padding: const EdgeInsets.only(right: 20.0),
-            child: Image.asset('assets/images/logo_metroSP.png', height: 50),
-          ),
+          Padding(padding: const EdgeInsets.only(right: 20.0), child: Image.asset('assets/images/logo_metroSP.png', height: 50)),
         ],
       ),
-      drawer: const AdminDrawer(
-        primaryColor: Color(0xFF080023),
-        secondaryColor: Color.fromARGB(255, 0, 14, 92),
-      ),
+      drawer: const AdminDrawer(primaryColor: Color(0xFF080023), secondaryColor: Color.fromARGB(255, 0, 14, 92)),
       body: SingleChildScrollView(
         child: Padding(
           padding: const EdgeInsets.all(24.0),
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              UpdateStatusBar(
-                isDesktop: isDesktop,
-                lastUpdated: _lastUpdated,
-                onUpdate: _fetchMateriais,
-              ),
+              UpdateStatusBar(isDesktop: isDesktop, lastUpdated: _lastUpdated, onUpdate: _fetchMateriais),
               const SizedBox(height: 24),
-              const Text(
-                'Gestão de Materiais',
-                style: TextStyle(
-                  color: Colors.white,
-                  fontSize: 32,
-                  fontWeight: FontWeight.bold,
-                ),
-              ),
+              const Text('Gestão de Materiais', style: TextStyle(color: Colors.white, fontSize: 32, fontWeight: FontWeight.bold)),
               const SizedBox(height: 8),
-              const Text(
-                'Cadastre, edite e controle os materiais de consumo e giro',
-                style: TextStyle(color: Colors.white70, fontSize: 16),
-              ),
+              const Text('Cadastre, edite e controle os materiais de consumo e giro', style: TextStyle(color: Colors.white70, fontSize: 16)),
               const SizedBox(height: 24),
               Row(
                 mainAxisAlignment: MainAxisAlignment.end,
@@ -441,23 +485,15 @@ void _showAddMaterialDialog() {
                   OutlinedButton.icon(
                     onPressed: _exportarPDF,
                     icon: const Icon(Icons.upload_file, color: Colors.white70),
-                    label: const Text(
-                      'Exportar',
-                      style: TextStyle(color: Colors.white),
-                    ),
-                    style: OutlinedButton.styleFrom(
-                      side: const BorderSide(color: Colors.white30),
-                    ),
+                    label: const Text('Exportar', style: TextStyle(color: Colors.white)),
+                    style: OutlinedButton.styleFrom(side: const BorderSide(color: Colors.white30)),
                   ),
                   const SizedBox(width: 16),
                   ElevatedButton.icon(
-                    onPressed: _showAddMaterialDialog,
+                    onPressed: () => _showMaterialDialog(), // Abre modo CRIAÇÃO
                     icon: const Icon(Icons.add, color: Colors.white),
                     label: const Text('Criar Novo Material'),
-                    style: ElevatedButton.styleFrom(
-                      backgroundColor: const Color(0xFF3B82F6),
-                      foregroundColor: Colors.white,
-                    ),
+                    style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFF3B82F6), foregroundColor: Colors.white),
                   ),
                 ],
               ),
@@ -473,24 +509,14 @@ void _showAddMaterialDialog() {
                 },
                 onSearchChanged: (query) => _fetchMateriais(),
                 categories: [
-                  'Todas as Categorias',
-                  'Cabos',
-                  'Relés',
-                  'Redes',
-                  'Conectores',
-                  'EPIs',
-                  'Ferramentas',
-                  'Peças',
+                  'Todas as Categorias', 'Cabos', 'Relés', 'Redes', 'Conectores', 'EPIs', 'Ferramentas', 'Peças',
                 ],
                 searchHint: 'Buscar por nome ou código...',
               ),
               const SizedBox(height: 24),
               Container(
                 width: double.infinity,
-                decoration: BoxDecoration(
-                  color: const Color.fromARGB(209, 255, 255, 255),
-                  borderRadius: BorderRadius.circular(16),
-                ),
+                decoration: BoxDecoration(color: const Color.fromARGB(209, 255, 255, 255), borderRadius: BorderRadius.circular(16)),
                 child: _buildDataTable(),
               ),
             ],
@@ -500,150 +526,32 @@ void _showAddMaterialDialog() {
     );
   }
 
-  // botão exportar
-  Future<void> _exportarPDF() async {
-    final pdf = pw.Document();
-
-    pdf.addPage(
-      pw.MultiPage(
-        pageFormat: PdfPageFormat.a4,
-        build: (pw.Context context) {
-          return [
-            pw.Center(
-              child: pw.Text(
-                'Relatório de Materiais',
-                style: pw.TextStyle(
-                  fontSize: 20,
-                  fontWeight: pw.FontWeight.bold,
-                ),
-              ),
-            ),
-            pw.SizedBox(height: 20),
-            pw.Table.fromTextArray(
-              headers: ['Cód. SAP', 'Nome', 'Categoria', 'Unidade', 'Status'],
-              data: _materiais.map((m) {
-                return [
-                  m.codigoSap.toString(),
-                  m.descricao,
-                  m.categoria ?? '-',
-                  m.unidade ?? '-',
-                  m.status,
-                ];
-              }).toList(),
-              headerStyle: pw.TextStyle(fontWeight: pw.FontWeight.bold),
-              cellStyle: const pw.TextStyle(fontSize: 10),
-              border: pw.TableBorder.all(width: 0.5, color: PdfColors.grey),
-              headerDecoration: const pw.BoxDecoration(
-                color: PdfColors.grey300,
-              ),
-            ),
-          ];
-        },
-      ),
-    );
-
-    await Printing.sharePdf(bytes: await pdf.save(), filename: 'materiais.pdf');
-  }
-
-  void _showSnackBar(String message, {bool isError = false}) {
-    if (!mounted) return;
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text(message),
-        backgroundColor: isError ? Colors.red.shade800 : Colors.green.shade800,
-        behavior: SnackBarBehavior.floating,
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-        margin: const EdgeInsets.all(24),
-      ),
-    );
-  }
-
   Widget _buildDataTable() {
-    if (_isLoading) {
-      return const SizedBox(
-        height: 500,
-        child: Center(
-          child: CircularProgressIndicator(
-            valueColor: AlwaysStoppedAnimation<Color>(Color(0xFF080023)),
-          ),
-        ),
-      );
-    }
-
-    if (_errorMessage != null) {
-      return SizedBox(
-        height: 500,
-        child: Center(
-          child: Column(
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: [
-              const Icon(Icons.error_outline, color: Colors.red, size: 48),
-              const SizedBox(height: 16),
-              Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 16.0),
-                child: Text(
-                  _errorMessage!,
-                  textAlign: TextAlign.center,
-                  style: const TextStyle(color: Colors.black87, fontSize: 16),
-                ),
-              ),
-              const SizedBox(height: 16),
-              ElevatedButton(
-                onPressed: _fetchMateriais,
-                child: const Text("Tentar Novamente"),
-              ),
-            ],
-          ),
-        ),
-      );
-    }
-
-    if (_materiais.isEmpty) {
-      return const SizedBox(
-        height: 500,
-        child: Center(
-          child: Text(
-            "Nenhum material encontrado",
-            style: TextStyle(color: Colors.black54, fontSize: 18),
-          ),
-        ),
-      );
-    }
+    if (_isLoading) return const SizedBox(height: 500, child: Center(child: CircularProgressIndicator(valueColor: AlwaysStoppedAnimation<Color>(Color(0xFF080023)))));
+    if (_errorMessage != null) return SizedBox(height: 500, child: Center(child: Column(mainAxisAlignment: MainAxisAlignment.center, children: [const Icon(Icons.error_outline, color: Colors.red, size: 48), const SizedBox(height: 16), Text(_errorMessage!, style: const TextStyle(color: Colors.black87, fontSize: 16)), const SizedBox(height: 16), ElevatedButton(onPressed: _fetchMateriais, child: const Text("Tentar Novamente"))])));
+    if (_materiais.isEmpty) return const SizedBox(height: 500, child: Center(child: Text("Nenhum material encontrado", style: TextStyle(color: Colors.black54, fontSize: 18))));
 
     return Column(
       children: [
         _buildTableHeader(),
         const Divider(color: Color.fromARGB(59, 102, 102, 102), height: 1),
-        SizedBox(
-          height: 500,
-          child: Scrollbar(
-            controller: _scrollController,
-            thumbVisibility: true,
-            interactive: true,
-            child: ListView.separated(
-              controller: _scrollController,
-              padding: EdgeInsets.zero,
-              itemCount: _materiais.length,
-              separatorBuilder: (context, index) => const Divider(
-                color: Color.fromARGB(59, 102, 102, 102),
-                height: 1,
-                indent: 16,
-                endIndent: 16,
-              ),
-              itemBuilder: (context, index) =>
-                  _buildMaterialRow(_materiais[index]),
-            ),
-          ),
+        // Usamos um container com altura limitada ou shrinkwrap se não houver Expanded pai
+        // Aqui o container pai já tem width infinito.
+        ListView.separated(
+          controller: _scrollController,
+          shrinkWrap: true, // Importante dentro de SingleChildScrollView
+          physics: const NeverScrollableScrollPhysics(), // Scroll da página cuida disso
+          padding: EdgeInsets.zero,
+          itemCount: _materiais.length,
+          separatorBuilder: (context, index) => const Divider(color: Color.fromARGB(59, 102, 102, 102), height: 1, indent: 16, endIndent: 16),
+          itemBuilder: (context, index) => _buildMaterialRow(_materiais[index]),
         ),
       ],
     );
   }
 
   Widget _buildTableHeader() {
-    const headerStyle = TextStyle(
-      fontWeight: FontWeight.bold,
-      color: Colors.black54,
-    );
+    const headerStyle = TextStyle(fontWeight: FontWeight.bold, color: Colors.black54);
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 16.0),
       child: const Row(
@@ -651,58 +559,35 @@ void _showAddMaterialDialog() {
           Expanded(flex: 2, child: Text('Cód. SAP', style: headerStyle)),
           Expanded(flex: 4, child: Text('Nome', style: headerStyle)),
           Expanded(flex: 3, child: Text('Categoria', style: headerStyle)),
-          Expanded(flex: 3, child: Text('Unidade', style: headerStyle)),
+          Expanded(flex: 2, child: Text('Unidade', style: headerStyle)),
           Expanded(flex: 2, child: Text('Status', style: headerStyle)),
-          SizedBox(
-            width: 56,
-            child: Center(child: Text('Ações', style: headerStyle)),
-          ),
+          SizedBox(width: 56, child: Center(child: Text('Ações', style: headerStyle))),
         ],
       ),
     );
   }
 
   Widget _buildMaterialRow(MaterialItem item) {
-    const cellStyle = TextStyle(color: Colors.black87);
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 12.0),
-      child: Row(
-        children: [
-          Expanded(
-            flex: 2,
-            child: Text(item.codigoSap.toString(), style: cellStyle),
-          ),
-          Expanded(
-            flex: 4,
-            child: Text(
-              item.descricao,
-              style: const TextStyle(
-                color: Colors.black,
-                fontWeight: FontWeight.bold,
-              ),
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+      child: Row(children: [
+        Expanded(flex: 2, child: Text(item.codigoSap.toString())),
+        Expanded(flex: 4, child: Text(item.descricao)),
+        Expanded(flex: 3, child: Text(item.categoria ?? '-')), // Simplificado style
+        Expanded(flex: 2, child: Text(item.unidade ?? '-')),
+        Expanded(flex: 2, child: Text(item.status)),
+        SizedBox(
+          width: 56,
+          child: Center(
+            child: TableActionsMenu(
+              onEditPressed: () => _showMaterialDialog(material: item),
+              onRemovePressed: () => _removeMaterial(item),
+              // A mágica acontece aqui: passamos a função opcional
+              onAdjustStockPressed: () => _showStockAdjustmentDialog(item), 
             ),
           ),
-          Expanded(
-            flex: 3,
-            child: _buildChip(
-              item.categoria ?? '-',
-              Colors.grey.shade300,
-              Colors.black54,
-            ),
-          ),
-          Expanded(flex: 3, child: Text(item.unidade ?? '-', style: cellStyle)),
-          Expanded(flex: 2, child: _buildStatusChip(item.status)),
-          SizedBox(
-            width: 56,
-            child: Center(
-              child: TableActionsMenu(
-                onEditPressed: () => {},
-                onRemovePressed: () => {_removeMaterial(item)},
-              ),
-            ),
-          ),
-        ],
-      ),
+        ),
+      ]),
     );
   }
 
@@ -711,401 +596,440 @@ void _showAddMaterialDialog() {
       alignment: Alignment.centerLeft,
       child: Container(
         padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
-        decoration: BoxDecoration(
-          color: color,
-          borderRadius: BorderRadius.circular(16),
-        ),
-        child: Text(
-          label,
-          style: TextStyle(
-            color: textColor,
-            fontSize: 12,
-            fontWeight: FontWeight.bold,
-          ),
-        ),
+        decoration: BoxDecoration(color: color, borderRadius: BorderRadius.circular(16)),
+        child: Text(label, style: TextStyle(color: textColor, fontSize: 12, fontWeight: FontWeight.bold)),
       ),
     );
   }
 
   Widget _buildStatusChip(String status) {
     final bool isAtivo = status == 'Ativo';
-    final backgroundColor = isAtivo
-        ? Colors.green.shade100
-        : Colors.red.shade100;
-    final textColor = isAtivo ? Colors.green.shade800 : Colors.red.shade800;
-
-    return _buildChip(status, backgroundColor, textColor);
+    return _buildChip(status, isAtivo ? Colors.green.shade100 : Colors.red.shade100, isAtivo ? Colors.green.shade800 : Colors.red.shade800);
   }
 }
 
-class _AddMaterialDialog extends StatefulWidget {
-  // NOVA ASSINATURA: Agora recebe os locais e um callback que aceita o Mapa de dados
+// ==================================================================
+// ===== DIALOG UNIFICADO (CRIAÇÃO E EDIÇÃO) ========================
+// ==================================================================
+
+class _AddOrEditMaterialDialog extends StatefulWidget {
   final List<String> categories;
   final List<LocalFisico> locaisDisponiveis;
-  final void Function(Map<String, dynamic>) onMaterialAdded;
+  final MaterialItem? materialParaEditar; // Se null = Criação
+  final void Function(Map<String, dynamic>) onSave;
 
-  const _AddMaterialDialog({
+  const _AddOrEditMaterialDialog({
     required this.categories,
-    required this.locaisDisponiveis, 
-    required this.onMaterialAdded,
+    required this.locaisDisponiveis,
+    this.materialParaEditar,
+    required this.onSave,
   });
 
   @override
-  State<_AddMaterialDialog> createState() => _AddMaterialDialogState();
+  State<_AddOrEditMaterialDialog> createState() => _AddOrEditMaterialDialogState();
 }
 
-class _AddMaterialDialogState extends State<_AddMaterialDialog> {
-  final GlobalKey<FormState> _formKey = GlobalKey<FormState>();
-  final TextEditingController _codSapController = TextEditingController();
-  final TextEditingController _descricaoController = TextEditingController();
-  final TextEditingController _apelidoController = TextEditingController();
-  final TextEditingController _unidadeController = TextEditingController();
-  // NOVOS CONTROLADORES PARA ESTOQUE
-  final TextEditingController _quantidadeController = TextEditingController();
-  final TextEditingController _loteController = TextEditingController();
+class _AddOrEditMaterialDialogState extends State<_AddOrEditMaterialDialog> {
+  final _formKey = GlobalKey<FormState>();
   
+  // Controllers
+  final _codSapController = TextEditingController();
+  final _descricaoController = TextEditingController();
+  final _apelidoController = TextEditingController();
+  final _unidadeController = TextEditingController();
+  final _quantidadeController = TextEditingController(); // Só para criação
+  final _loteController = TextEditingController();       // Só para criação
+
   LocalFisico? _selectedLocal;
-  String? _error; // Para exibir erros de validação de estoque
-  String? _selectedCategoria; 
+  String? _selectedCategoria;
   bool _isSaving = false;
   bool _ativo = true; 
+  String? _error;
+
+  bool get isEditing => widget.materialParaEditar != null;
 
   @override
   void initState() {
     super.initState();
-    _selectedCategoria = widget.categories.isNotEmpty ? widget.categories.first : null;
-
-    if (widget.categories.isEmpty) {
-      _selectedCategoria = widget.categories.first;
+    
+    // Inicializa campos
+    if (isEditing) {
+      final m = widget.materialParaEditar!;
+      _codSapController.text = m.codigoSap.toString();
+      _descricaoController.text = m.descricao;
+      _apelidoController.text = m.apelido ?? '';
+      _unidadeController.text = m.unidade ?? '';
+      _selectedCategoria = m.categoria;
+      _ativo = m.ativo;
+    } else {
+      // Criação: defaults
+      if (widget.categories.isNotEmpty) _selectedCategoria = widget.categories.first;
+      if (widget.locaisDisponiveis.isNotEmpty) _selectedLocal = widget.locaisDisponiveis.first;
     }
     
-    // Inicia com o primeiro local disponível (para estoque inicial)
-    if (widget.locaisDisponiveis.isNotEmpty) {
-      _selectedLocal = widget.locaisDisponiveis.first;
+    // Garante categoria válida (se a lista mudou ou é inválida)
+    if (_selectedCategoria != null && !widget.categories.contains(_selectedCategoria)) {
+        // Se não estiver na lista, ou deixa null ou seleciona o primeiro
+        if (widget.categories.isNotEmpty) _selectedCategoria = widget.categories.first;
     }
   }
 
-  @override
-  void dispose() {
-    _codSapController.dispose();
-    _descricaoController.dispose();
-    _apelidoController.dispose();
-    _unidadeController.dispose();
-    // DISPOSE DOS NOVOS CONTROLADORES
-    _quantidadeController.dispose();
-    _loteController.dispose();
-    super.dispose();
-  }
+  Future<void> _submit() async {
+    if (!_formKey.currentState!.validate()) return;
 
-  Future<void> _save() async {
-    // 1. VALIDAÇÃO DOS CAMPOS DE TEXTO E DROPDOWN
-    if (!_formKey.currentState!.validate()) {
-      return;
+    // Validações extras apenas para criação (Estoque Inicial)
+    if (!isEditing) {
+       final qtd = num.tryParse(_quantidadeController.text.trim());
+       if (qtd == null || qtd <= 0) {
+         setState(() => _error = 'Quantidade inicial obrigatória e positiva.');
+         return;
+       }
+       if (_selectedLocal == null) {
+         setState(() => _error = 'Local obrigatório para estoque inicial.');
+         return;
+       }
     }
 
-    if (widget.locaisDisponiveis.isEmpty) {
-      setState(() {
-        _error = 'Nenhum local de estoque encontrado. Cadastre um local primeiro.';
-        _isSaving = false;
-      });
-      return;
-    }
-    
-    // 2. VALIDAÇÃO DOS NOVOS CAMPOS DE ESTOQUE
-    final quantidade = num.tryParse(_quantidadeController.text.trim());
+    setState(() { _isSaving = true; _error = null; });
 
-    if (quantidade == null || quantidade <= 0) {
-      setState(() {
-        _error = 'Quantidade Inicial deve ser um número positivo.';
-        _isSaving = false;
-      });
-      return;
-    }
-    if (_selectedLocal == null) {
-      setState(() {
-        _error = 'Um Local de Estoque deve ser selecionado.';
-        _isSaving = false;
-      });
-      return;
-    }
-    
-    // Limpa erro anterior e inicia o estado de salvamento
-    setState(() {
-      _error = null;
-      _isSaving = true;
-    });
-
-    // 3. PREPARAÇÃO DE DADOS E CHAMADA DE API
-    
-    final finalLote = _loteController.text.trim().isEmpty ? null : _loteController.text.trim();
-    
-    // CHAMA O CALLBACK COM TODOS OS DADOS (8 PARÂMETROS)
-    widget.onMaterialAdded({
-      'cod_sap': int.parse(_codSapController.text.trim()),
+    // Monta o mapa de dados
+    final data = {
+      'cod_sap': int.tryParse(_codSapController.text.trim()),
       'descricao': _descricaoController.text.trim(),
       'apelido': _apelidoController.text.trim(),
       'categoria': _selectedCategoria,
       'unidade': _unidadeController.text.trim(),
       'ativo': _ativo,
-      // NOVOS PARÂMETROS DE ESTOQUE:
-      'quantidade_inicial': quantidade,
-      'local_id': _selectedLocal!.id,
-      'lote': finalLote,
-    });
+    };
+
+    // Se for criação, adiciona dados de estoque
+    if (!isEditing) {
+      data['quantidade_inicial'] = num.parse(_quantidadeController.text.trim());
+      data['local_id'] = _selectedLocal!.id;
+      data['lote'] = _loteController.text.trim().isEmpty ? null : _loteController.text.trim();
+    }
+
+     widget.onSave(data);
     
-    // O Navigator.pop() e o _isSaving=false serão tratados na função _addNewMaterial 
-    // no parent widget (MateriaisAdminPage), após a chamada da API.
+    if (mounted) setState(() => _isSaving = false);
   }
 
   @override
   Widget build(BuildContext context) {
-    const Color primaryColor = Color(0xFF080023);
+    const primaryColor = Color(0xFF080023);
+    const inputFill = Color.fromARGB(255, 30, 24, 53);
 
     return AlertDialog(
       backgroundColor: primaryColor,
-      title: const Text(
-        'Adicionar Novo Material',
-        style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold),
-      ),
+      title: Text(isEditing ? 'Editar Material' : 'Adicionar Novo Material', style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
       content: Form(
         key: _formKey,
         child: SingleChildScrollView(
           child: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
-              // CÓDIGO SAP, DESCRIÇÃO, APELIDO, CATEGORIA, UNIDADE
-              // (Mantido igual)
-              TextFormField(
-                controller: _codSapController,
-                style: const TextStyle(color: Colors.white),
-                keyboardType: TextInputType.number,
-                decoration: _buildInputDecoration(
-                  label: 'Cód. SAP *',
-                  icon: Icons.qr_code,
-                ),
-                validator: (value) {
-                  if (value == null || value.trim().isEmpty) {
-                    return 'O Cód. SAP é obrigatório';
-                  }
-                  if (int.tryParse(value.trim()) == null) {
-                    return 'Deve ser um número válido';
-                  }
-                  return null;
-                },
-              ),
+              _buildTextField(controller: _codSapController, label: 'Cód. SAP *', icon: Icons.qr_code, isNumber: true),
               const SizedBox(height: 16),
-              TextFormField(
-                controller: _descricaoController,
-                style: const TextStyle(color: Colors.white),
-                decoration: _buildInputDecoration(
-                  label: 'Descrição *',
-                  icon: Icons.description,
-                ),
-                validator: (value) {
-                  if (value == null || value.trim().isEmpty) {
-                    return 'A descrição é obrigatória';
-                  }
-                  return null;
-                },
-              ),
+              _buildTextField(controller: _descricaoController, label: 'Descrição *', icon: Icons.description),
               const SizedBox(height: 16),
-              TextFormField(
-                controller: _apelidoController,
-                style: const TextStyle(color: Colors.white),
-                decoration: _buildInputDecoration(
-                  label: 'Apelido',
-                  icon: Icons.label_outline,
-                ),
-              ),
+              _buildTextField(controller: _apelidoController, label: 'Apelido', icon: Icons.label),
               const SizedBox(height: 16),
+              // DROPDOWN DE CATEGORIA
               _buildDropdown(
                 value: _selectedCategoria,
-                hint: 'Selecione uma categoria',
                 items: widget.categories,
-                onChanged: (String? newValue) {
-                  if (newValue != null) {
-                    setState(() {
-                      _selectedCategoria = newValue;
-                    });
-                  }
-                },
+                hint: 'Categoria',
+                onChanged: (v) => setState(() => _selectedCategoria = v),
+                label: 'Categoria',
+                icon: Icons.category
               ),
               const SizedBox(height: 16),
-              TextFormField(
-                controller: _unidadeController,
-                style: const TextStyle(color: Colors.white),
-                decoration: _buildInputDecoration(
-                  label: 'Unidade (ex: PC, M, KG)',
-                  icon: Icons.straighten,
-                ),
-              ),
+              _buildTextField(controller: _unidadeController, label: 'Unidade', icon: Icons.straighten),
               
-              const SizedBox(height: 24),
-              // --- SEÇÃO DE ESTOQUE INICIAL ---
-              const Divider(color: Colors.white30, thickness: 1),
-              const SizedBox(height: 16),
-              const Text(
-                'ESTOQUE INICIAL (Obrigatório)',
-                style: TextStyle(color: Colors.blue, fontWeight: FontWeight.bold, fontSize: 18),
-              ),
-              const SizedBox(height: 16),
-
-              // 1. CAMPO QUANTIDADE INICIAL
-              TextFormField(
-                controller: _quantidadeController,
-                style: const TextStyle(color: Colors.white),
-                keyboardType: TextInputType.number,
-                decoration: _buildInputDecoration(
-                  label: 'Quantidade Inicial *',
-                  icon: Icons.numbers,
+              // SWITCH DE ATIVO/INATIVO (Só na edição)
+              if (isEditing) ...[
+                const SizedBox(height: 24),
+                Container(
+                  padding: const EdgeInsets.all(12),
+                  decoration: BoxDecoration(color: inputFill, borderRadius: BorderRadius.circular(12), border: Border.all(color: Colors.white30)),
+                  child: Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
+                      const Text("Material Ativo?", style: TextStyle(color: Colors.white)),
+                      Switch(
+                        value: _ativo, 
+                        onChanged: (v) => setState(() => _ativo = v), 
+                        activeColor: const Color(0xFF3B82F6)
+                      ),
+                    ],
+                  ),
                 ),
-                validator: (value) {
-                  if (value == null || value.trim().isEmpty) return 'Obrigatório.';
-                  if (num.tryParse(value.trim()) == null || (num.tryParse(value.trim()) ?? 0) <= 0) return 'Deve ser um número positivo.';
-                  return null;
-                },
-              ),
-              const SizedBox(height: 16),
+              ],
 
-              // 2. CAMPO LOCAL DE ESTOQUE
-              _buildDropdown(
-                label: 'Local de Estoque *',
-                icon: Icons.place,
-                value: _selectedLocal?.nome,
-                hint: 'Local de estoque',
-                items: widget.locaisDisponiveis.map((l) => l.nome).toList(),
-                onChanged: (String? newValue) {
-                  if (newValue != null) {
+              // CAMPOS DE ESTOQUE (SÓ NA CRIAÇÃO)
+              if (!isEditing) ...[
+                const SizedBox(height: 24),
+                const Divider(color: Colors.white24),
+                const Padding(
+                  padding: EdgeInsets.symmetric(vertical: 8.0),
+                  child: Text("Estoque Inicial", style: TextStyle(color: Color(0xFF3B82F6), fontWeight: FontWeight.bold)),
+                ),
+                _buildTextField(controller: _quantidadeController, label: 'Quantidade *', icon: Icons.numbers, isNumber: true),
+                const SizedBox(height: 16),
+                // Dropdown de Local
+                _buildDropdown(
+                  value: _selectedLocal?.nome,
+                  items: widget.locaisDisponiveis.map((l) => l.nome).toList(),
+                  hint: 'Local de Estoque',
+                  label: 'Local *',
+                  icon: Icons.place,
+                  onChanged: (val) {
                     setState(() {
-                      _selectedLocal = widget.locaisDisponiveis.firstWhere((l) => l.nome == newValue);
+                       // Assumindo nomes únicos para simplificar o dropdown por string
+                       try {
+                         _selectedLocal = widget.locaisDisponiveis.firstWhere((l) => l.nome == val);
+                       } catch (_) {}
                     });
-                  }
-                },
-              ),
-              const SizedBox(height: 16),
+                  },
+                ),
+                const SizedBox(height: 16),
+                _buildTextField(controller: _loteController, label: 'Lote (Opcional)', icon: Icons.bookmark_border),
+              ],
 
-              // 3. CAMPO LOTE (Opcional)
-              TextFormField(
-                controller: _loteController,
-                style: const TextStyle(color: Colors.white),
-                decoration: _buildInputDecoration(
-                  label: 'Lote (Opcional)',
-                  icon: Icons.bookmark_border,
-                ),
-              ),
-              
-              if (_error != null)
-                Padding(
-                  padding: const EdgeInsets.only(top: 16),
-                  child: Text(_error!, style: const TextStyle(color: Colors.red)),
-                ),
+              if (_error != null) Padding(padding: const EdgeInsets.only(top: 16), child: Text(_error!, style: const TextStyle(color: Colors.red))),
             ],
           ),
         ),
       ),
       actions: [
-        TextButton(
-          onPressed: () => Navigator.of(context).pop(),
-          child: const Text('Cancelar', style: TextStyle(color: Colors.white70)),
-        ),
+        TextButton(onPressed: () => Navigator.pop(context), child: const Text("Cancelar", style: TextStyle(color: Colors.white70))),
         ElevatedButton(
-          onPressed: _isSaving ? null : _save,
-          style: ElevatedButton.styleFrom(
-            backgroundColor: const Color(0xFF3B82F6),
-            foregroundColor: Colors.white,
-          ),
-          child: _isSaving
-              ? const SizedBox(width: 20, height: 20, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white))
-              : const Text('Salvar'),
+          onPressed: _isSaving ? null : _submit,
+          style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFF3B82F6), foregroundColor: Colors.white),
+          child: _isSaving ? const SizedBox(width: 20, height: 20, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white)) : const Text("Salvar"),
         ),
       ],
     );
   }
-  
-  // Funções Helpers (Mantidas iguais para o resto do arquivo)
+
+  Widget _buildTextField({required TextEditingController controller, required String label, required IconData icon, bool isNumber = false}) {
+    return TextFormField(
+      controller: controller,
+      keyboardType: isNumber ? TextInputType.number : TextInputType.text,
+      style: const TextStyle(color: Colors.white),
+      validator: (v) => (label.contains('*') && (v == null || v.trim().isEmpty)) ? 'Obrigatório' : null,
+      decoration: InputDecoration(
+        labelText: label,
+        labelStyle: const TextStyle(color: Colors.white60),
+        prefixIcon: Icon(icon, color: Colors.white60),
+        filled: true, fillColor: const Color.fromARGB(255, 30, 24, 53),
+        border: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: const BorderSide(color: Colors.white30)),
+        enabledBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: const BorderSide(color: Colors.white30)),
+        focusedBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: const BorderSide(color: Color(0xFF3B82F6))),
+      ),
+    );
+  }
+
   Widget _buildDropdown({
-    required String? value,
-    required hint,
-    required List<String> items,
+    required String? value, 
+    required List<String> items, 
+    required String hint, 
     required ValueChanged<String?> onChanged,
     String label = '',
     IconData? icon,
   }) {
-    const Color inputFillColor = Color.fromARGB(255, 30, 24, 53);
-    const Color borderColor = Colors.white30;
-    const Color hintColor = Colors.white60;
-    
-    // Usando um Container com Row para simular o prefixIcon do InputDecoration
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        if (label.isNotEmpty) Text(label, style: const TextStyle(color: hintColor, fontSize: 12)),
-        Container(
-          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
-          decoration: BoxDecoration(
-            color: inputFillColor,
-            borderRadius: BorderRadius.circular(12),
-            border: Border.all(color: borderColor),
-          ),
-          child: Row(
-            children: [
-              if (icon != null) Padding(
-                padding: const EdgeInsets.only(right: 8.0),
-                child: Icon(icon, color: hintColor, size: 20),
-              ),
-              Expanded(
-                child: DropdownButtonHideUnderline(
-                  child: DropdownButton<String>(
-                    value: value,
-                    isExpanded: true,
-                    hint: Text(hint, style: const TextStyle(color: hintColor)),
-                    dropdownColor: const Color(0xFF080023), 
-                    icon: const Icon(Icons.arrow_drop_down, color: hintColor),
-                    style: const TextStyle(color: Colors.white, fontSize: 16),
-                    onChanged: onChanged,
-                    items: items.map<DropdownMenuItem<String>>((String displayValue) {
-                      return DropdownMenuItem<String>(
-                        value: displayValue,
-                        child: Text(displayValue),
-                      );
-                    }).toList(),
+     const Color inputFillColor = Color.fromARGB(255, 30, 24, 53);
+     const Color borderColor = Colors.white30;
+     const Color hintColor = Colors.white60;
+
+     return Column(
+       crossAxisAlignment: CrossAxisAlignment.start,
+       children: [
+         if (label.isNotEmpty) ...[
+            // Label simulado se desejar, ou deixe o hint cuidar
+         ],
+         Container(
+            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
+            decoration: BoxDecoration(color: inputFillColor, borderRadius: BorderRadius.circular(12), border: Border.all(color: borderColor)),
+            child: Row(
+              children: [
+                if (icon != null) ...[
+                   Icon(icon, color: hintColor),
+                   const SizedBox(width: 12),
+                ],
+                Expanded(
+                  child: DropdownButtonHideUnderline(
+                    child: DropdownButton<String>(
+                      value: value,
+                      isExpanded: true,
+                      dropdownColor: const Color(0xFF080023),
+                      icon: const Icon(Icons.arrow_drop_down, color: Colors.white60),
+                      style: const TextStyle(color: Colors.white, fontSize: 16),
+                      hint: Text(hint, style: const TextStyle(color: Colors.white60)),
+                      items: items.map((i) => DropdownMenuItem(value: i, child: Text(i))).toList(),
+                      onChanged: onChanged,
+                    ),
                   ),
                 ),
+              ],
+            ),
+         ),
+       ],
+     );
+  }
+}
+
+class _AjusteEstoqueDialog extends StatefulWidget {
+  final MaterialItem material;
+  final List<LocalFisico> locaisDisponiveis;
+  final Future<void> Function(Map<String, dynamic>) onSave;
+
+  const _AjusteEstoqueDialog({
+    required this.material,
+    required this.locaisDisponiveis,
+    required this.onSave,
+  });
+
+  @override
+  State<_AjusteEstoqueDialog> createState() => _AjusteEstoqueDialogState();
+}
+
+class _AjusteEstoqueDialogState extends State<_AjusteEstoqueDialog> {
+  final _formKey = GlobalKey<FormState>();
+  final _quantidadeController = TextEditingController();
+  final _motivoController = TextEditingController();
+  final _loteController = TextEditingController();
+  
+  LocalFisico? _selectedLocal;
+  String _tipoAjuste = 'adicionar'; // 'adicionar' ou 'remover'
+  bool _isSaving = false;
+
+  @override
+  void initState() {
+    super.initState();
+    if (widget.locaisDisponiveis.isNotEmpty) _selectedLocal = widget.locaisDisponiveis.first;
+  }
+
+  Future<void> _submit() async {
+    if (!_formKey.currentState!.validate()) return;
+    setState(() => _isSaving = true);
+
+    await widget.onSave({
+      'local_id': _selectedLocal!.id,
+      'quantidade': num.parse(_quantidadeController.text.trim()),
+      'tipo': _tipoAjuste,
+      'motivo': _motivoController.text.trim(),
+      'lote': _loteController.text.trim().isEmpty ? null : _loteController.text.trim(),
+    });
+
+    if (mounted) setState(() => _isSaving = false);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    const primaryColor = Color(0xFF080023);
+    const inputFill = Color.fromARGB(255, 30, 24, 53);
+
+    return AlertDialog(
+      backgroundColor: primaryColor,
+      title: Text('Ajustar Estoque: ${widget.material.descricao}', style: const TextStyle(color: Colors.white, fontSize: 16)),
+      content: Form(
+        key: _formKey,
+        child: SingleChildScrollView(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              // Toggle Tipo
+              Row(
+                children: [
+                  Expanded(child: RadioListTile<String>(
+                    title: const Text('Adicionar', style: TextStyle(color: Colors.white)),
+                    value: 'adicionar', 
+                    groupValue: _tipoAjuste, 
+                    activeColor: Colors.green,
+                    onChanged: (v) => setState(() => _tipoAjuste = v!),
+                  )),
+                  Expanded(child: RadioListTile<String>(
+                    title: const Text('Baixa/Perda', style: TextStyle(color: Colors.white)),
+                    value: 'remover', 
+                    groupValue: _tipoAjuste, 
+                    activeColor: Colors.red,
+                    onChanged: (v) => setState(() => _tipoAjuste = v!),
+                  )),
+                ],
+              ),
+              const SizedBox(height: 16),
+
+              // Local
+              Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 12),
+                  decoration: BoxDecoration(color: inputFill, borderRadius: BorderRadius.circular(12), border: Border.all(color: Colors.white30)),
+                  child: DropdownButtonHideUnderline(
+                    child: DropdownButton<String>(
+                      value: _selectedLocal?.nome,
+                      dropdownColor: primaryColor,
+                      icon: const Icon(Icons.arrow_drop_down, color: Colors.white60),
+                      style: const TextStyle(color: Colors.white),
+                      hint: const Text("Local *", style: TextStyle(color: Colors.white60)),
+                      items: widget.locaisDisponiveis.map((l) => DropdownMenuItem(value: l.nome, child: Text(l.nome))).toList(),
+                      onChanged: (val) => setState(() => _selectedLocal = widget.locaisDisponiveis.firstWhere((l) => l.nome == val)),
+                    ),
+                  ),
+              ),
+              const SizedBox(height: 16),
+
+              // Quantidade
+              TextFormField(
+                controller: _quantidadeController,
+                keyboardType: TextInputType.number,
+                style: const TextStyle(color: Colors.white),
+                decoration: InputDecoration(
+                  labelText: 'Quantidade *',
+                  labelStyle: const TextStyle(color: Colors.white60),
+                  filled: true, fillColor: inputFill,
+                  border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
+                ),
+                validator: (v) => (v == null || num.tryParse(v) == null) ? 'Inválido' : null,
+              ),
+              const SizedBox(height: 16),
+              
+              // Lote
+              TextFormField(
+                controller: _loteController,
+                style: const TextStyle(color: Colors.white),
+                decoration: InputDecoration(
+                  labelText: 'Lote (Opcional)',
+                  labelStyle: const TextStyle(color: Colors.white60),
+                  filled: true, fillColor: inputFill,
+                  border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
+                ),
+              ),
+              const SizedBox(height: 16),
+
+              // Motivo
+              TextFormField(
+                controller: _motivoController,
+                style: const TextStyle(color: Colors.white),
+                decoration: InputDecoration(
+                  labelText: 'Motivo do Ajuste *',
+                  labelStyle: const TextStyle(color: Colors.white60),
+                  filled: true, fillColor: inputFill,
+                  border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
+                ),
+                validator: (v) => (v == null || v.isEmpty) ? 'Obrigatório para auditoria' : null,
               ),
             ],
           ),
         ),
+      ),
+      actions: [
+        TextButton(onPressed: () => Navigator.pop(context), child: const Text("Cancelar", style: TextStyle(color: Colors.white70))),
+        ElevatedButton(
+          onPressed: _isSaving ? null : _submit,
+          style: ElevatedButton.styleFrom(backgroundColor: _tipoAjuste == 'adicionar' ? Colors.green : Colors.red),
+          child: _isSaving ? const CircularProgressIndicator(color: Colors.white) : const Text("Confirmar Ajuste", style: TextStyle(color: Colors.white)),
+        ),
       ],
-    );
-  }
-
-  InputDecoration _buildInputDecoration({
-    required String label,
-    required IconData icon,
-  }) {
-    const Color inputFillColor = Color.fromARGB(255, 30, 24, 53);
-    const Color borderColor = Colors.white30;
-    const Color hintColor = Colors.white60;
-
-    return InputDecoration(
-      labelText: label,
-      labelStyle: const TextStyle(color: hintColor),
-      hintStyle: const TextStyle(color: hintColor),
-      prefixIcon: Icon(icon, color: hintColor, size: 20),
-      filled: true,
-      fillColor: inputFillColor,
-      border: OutlineInputBorder(
-        borderRadius: BorderRadius.circular(12),
-        borderSide: const BorderSide(color: borderColor),
-      ),
-      enabledBorder: OutlineInputBorder(
-        borderRadius: BorderRadius.circular(12),
-        borderSide: const BorderSide(color: borderColor),
-      ),
-      focusedBorder: OutlineInputBorder(
-        borderRadius: BorderRadius.circular(12),
-        borderSide: const BorderSide(color: Color(0xFF3B82F6), width: 2),
-      ),
     );
   }
 }
