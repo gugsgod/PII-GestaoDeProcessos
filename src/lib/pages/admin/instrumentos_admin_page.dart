@@ -9,6 +9,9 @@ import '../../widgets/admin/home_admin/update_status_bar.dart';
 import '../../widgets/admin/materiais_admin/table_actions_menu.dart';
 import 'animated_network_background.dart';
 import 'dart:async';
+import 'package:printing/printing.dart';
+import 'package:pdf/widgets.dart' as pw;
+import 'package:pdf/pdf.dart';
 import 'dart:convert';
 
 // Enum para o status do instrumento
@@ -126,6 +129,51 @@ class _InstrumentosAdminPageState extends State<InstrumentosAdminPage> {
     _scrollController.dispose();
     super.dispose();
   }
+
+  Future<void> _exportarPDF() async {
+  final pdf = pw.Document();
+
+  pdf.addPage(
+    pw.MultiPage(
+      pageFormat: PdfPageFormat.a4,
+      build: (pw.Context context) {
+        return [
+          pw.Center(
+            child: pw.Text(
+              'Relatório de Instrumentos',
+              style: pw.TextStyle(
+                fontSize: 20,
+                fontWeight: pw.FontWeight.bold,
+              ),
+            ),
+          ),
+          pw.SizedBox(height: 20),
+
+          pw.Table.fromTextArray(
+            headers: ['Código', 'Nome', 'Categoria', 'Status'],
+            data: _filteredInstruments.map((instrumento) {
+              return [
+                instrumento.id.toString(),
+                instrumento.descricao,
+                instrumento.categoria,
+                instrumento.status,
+              ];
+            }).toList(),
+            headerStyle: pw.TextStyle(fontWeight: pw.FontWeight.bold),
+            cellStyle: const pw.TextStyle(fontSize: 10),
+            border: pw.TableBorder.all(width: 0.5, color: PdfColors.grey),
+            headerDecoration: const pw.BoxDecoration(color: PdfColors.grey300),
+          ),
+        ];
+      },
+    ),
+  );
+
+  await Printing.sharePdf(
+    bytes: await pdf.save(),
+    filename: 'instrumentos.pdf',
+  );
+}
 
   Future<void> _fetchLocais() async {
     final token = Provider.of<AuthStore>(context, listen: false).token;
@@ -303,8 +351,10 @@ class _InstrumentosAdminPageState extends State<InstrumentosAdminPage> {
     return _instruments
         .where(
           (i) =>
+              
               i.patrimonio.toLowerCase().contains(_searchQuery.toLowerCase()) ||
-              i.id.toLowerCase().contains(_searchQuery.toLowerCase()),
+              i.id.toLowerCase().contains(_searchQuery.toLowerCase()) ||
+              i.descricao.toLowerCase().contains(_searchQuery.toLowerCase())
         )
         .toList();
   }
@@ -491,6 +541,13 @@ class _InstrumentosAdminPageState extends State<InstrumentosAdminPage> {
               Row(
                 mainAxisAlignment: MainAxisAlignment.end,
                 children: [
+                  OutlinedButton.icon(
+                    onPressed: _exportarPDF,
+                    icon: const Icon(Icons.upload_file, color: Colors.white70),
+                    label: const Text('Exportar', style: TextStyle(color: Colors.white)),
+                    style: OutlinedButton.styleFrom(side: const BorderSide(color: Colors.white30)),
+                  ),
+                  const SizedBox(width: 16),
                   ElevatedButton.icon(
                     onPressed: _showAddInstrumentDialog,
                     icon: const Icon(Icons.add, color: Colors.white),
@@ -499,7 +556,7 @@ class _InstrumentosAdminPageState extends State<InstrumentosAdminPage> {
                       backgroundColor: const Color(0xFF3B82F6),
                       foregroundColor: Colors.white,
                     ),
-                  ),
+                  ), 
                 ],
               ),
               const SizedBox(height: 24),
