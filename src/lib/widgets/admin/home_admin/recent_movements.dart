@@ -47,8 +47,9 @@ class _Movimentacao {
   factory _Movimentacao.fromJson(Map<String, dynamic> json) {
     final material =
         _MaterialInfo.fromJson(json['material'] as Map<String, dynamic>);
+    final createdAtUtc = DateTime.tryParse(json['created_at'] as String? ?? '');
 
-    final createdAt = DateTime.tryParse(json['created_at'] as String? ?? '');
+    final createdAt = createdAtUtc?.toLocal();
     final dtLabel = createdAt != null
         ? '${createdAt.day.toString().padLeft(2, '0')}/'
             '${createdAt.month.toString().padLeft(2, '0')} '
