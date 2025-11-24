@@ -67,7 +67,7 @@ Future<Response> _list(RequestContext context) async {
   where.add('cod_sap BETWEEN $_SAP_MIN AND $_SAP_MAX');
 
   if (q != null && q.isNotEmpty) {
-    where.add('(descricao ILIKE @q OR apelido ILIKE @q)');
+    where.add('(descricao ILIKE @q OR apelido ILIKE @q OR cod_sap::text ILIKE @q)');
     params['q'] = '%$q%';
   }
   if (categoria != null && categoria.isNotEmpty) {

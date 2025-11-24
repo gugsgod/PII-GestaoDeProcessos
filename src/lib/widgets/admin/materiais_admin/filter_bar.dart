@@ -20,53 +20,79 @@ class FilterBar extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    // A cor original (branco com transparência)
     const filterBackgroundColor = Color.fromARGB(209, 255, 255, 255);
 
     return Row(
       children: [
+        // --- CAMPO DE BUSCA ---
         Expanded(
-          child: TextField(
-            controller: searchController,
-            style: const TextStyle(color: Colors.black87),
-            decoration: InputDecoration(
-              hintText: searchHint,
-              hintStyle: TextStyle(color: Colors.grey.shade600),
-              prefixIcon: Icon(Icons.search, color: Colors.grey.shade600),
-              filled: true,
-              fillColor: filterBackgroundColor,
-              border: OutlineInputBorder(
-                borderRadius: BorderRadius.circular(8),
-                borderSide: BorderSide.none,
+          child: SizedBox(
+            height: 48, 
+            child: TextField(
+              controller: searchController,
+              style: const TextStyle(color: Colors.black87),
+              decoration: InputDecoration(
+                hintText: searchHint,
+                hintStyle: TextStyle(color: Colors.grey.shade600),
+                prefixIcon: Icon(Icons.search, color: Colors.grey.shade600),
+                filled: true,
+                fillColor: filterBackgroundColor,
+                contentPadding: EdgeInsets.zero, // Centraliza o texto verticalmente
+                border: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(8),
+                  borderSide: BorderSide.none,
+                ),
               ),
+              onChanged: onSearchChanged,
             ),
-            onChanged: onSearchChanged,
           ),
         ),
         const SizedBox(width: 16),
 
-        // Dropdown fixo com posição estável
+        // --- DROPDOWN DE CATEGORIA ---
         Container(
           height: 48,
           padding: const EdgeInsets.symmetric(horizontal: 12.0),
           decoration: BoxDecoration(
-            color: filterBackgroundColor,
+            color: filterBackgroundColor, // Cor restaurada
             borderRadius: BorderRadius.circular(8),
           ),
           child: DropdownButtonHideUnderline(
-            child: DropdownButton<String>(
-              isExpanded: false,
-              value: selectedCategory,
-              icon: const Icon(Icons.keyboard_arrow_down, color: Colors.black54),
-              dropdownColor: filterBackgroundColor,
-              onChanged: onCategoryChanged,
-              items: categories.map<DropdownMenuItem<String>>((String value) {
-                return DropdownMenuItem<String>(
-                  value: value,
-                  child: Text(value, style: const TextStyle(color: Colors.black87)),
-                );
-              }).toList(),
-              menuMaxHeight: 250, // evita que o menu estoure a tela
-              alignment: AlignmentDirectional.bottomStart, // 🔧 mantém o menu fixo
+            child: ButtonTheme(
+              alignedDropdown: true, // Isso estabiliza a largura do menu
+              child: DropdownButton<String>(
+                value: categories.contains(selectedCategory) ? selectedCategory : null,
+                isExpanded: false, 
+                icon: const Icon(Icons.keyboard_arrow_down, color: Colors.black54),
+                dropdownColor: filterBackgroundColor, // Cor do menu restaurada
+                borderRadius: BorderRadius.circular(8),
+                style: const TextStyle(
+                  color: Colors.black87,
+                  fontSize: 14,
+                  fontWeight: FontWeight.w500,
+                ),
+                onChanged: onCategoryChanged,
+                items: categories.map<DropdownMenuItem<String>>((String value) {
+                  return DropdownMenuItem<String>(
+                    value: value,
+                    child: Text(value),
+                  );
+                }).toList(),
+                // O selectedItemBuilder garante que o texto no botão seja renderizado corretamente
+                selectedItemBuilder: (BuildContext context) {
+                  return categories.map<Widget>((String value) {
+                    return Align(
+                      alignment: Alignment.centerLeft,
+                      child: Text(
+                        value,
+                        style: const TextStyle(color: Colors.black87),
+                      ),
+                    );
+                  }).toList();
+                },
+                hint: const Text("Filtrar", style: TextStyle(color: Colors.black54)),
+              ),
             ),
           ),
         ),
