@@ -47,8 +47,9 @@ class _Movimentacao {
   factory _Movimentacao.fromJson(Map<String, dynamic> json) {
     final material =
         _MaterialInfo.fromJson(json['material'] as Map<String, dynamic>);
+    
+    // 1. Data e Hora
     final createdAtUtc = DateTime.tryParse(json['created_at'] as String? ?? '');
-
     final createdAt = createdAtUtc?.toLocal();
     final dtLabel = createdAt != null
         ? '${createdAt.day.toString().padLeft(2, '0')}/'
@@ -57,13 +58,22 @@ class _Movimentacao {
             '${createdAt.minute.toString().padLeft(2, '0')}'
         : '';
 
+    // 2. Quantidade
     final qtd = (json['quantidade'] as num?)?.toDouble() ?? 0;
     final unidade = material.unidade ?? 'UN';
 
-    // ainda não temos join com usuários; mostramos o id ou genérico
+    // 3. Lógica do Usuário (CORRIGIDO AQUI)
+    final respNome = json['responsavel_nome'] as String?;
     final respId = json['responsavel_id'];
-    final userLabel =
-        respId == null ? 'Responsável não informado' : 'Resp. #$respId';
+    
+    String userLabel = 'Desconhecido';
+
+    if (respNome != null && respNome.isNotEmpty) {
+      // Pega apenas o primeiro nome para não ocupar muito espaço no card
+      userLabel = respNome.split(' ').first;
+    } else if (respId != null) {
+      userLabel = 'Resp. #$respId';
+    }
 
     return _Movimentacao(
       operacao: (json['operacao'] as String?) ?? 'entrada',
@@ -71,7 +81,7 @@ class _Movimentacao {
       tag: (material.codSap ?? '').isEmpty
           ? 'SEM CÓDIGO'
           : material.codSap.toString(),
-      usuarioLabel: userLabel,
+      usuarioLabel: userLabel, // Passa o nome formatado
       horarioLabel: dtLabel,
       quantidadeLabel: '${qtd.toStringAsFixed(0)} $unidade',
     );
@@ -236,10 +246,10 @@ class _RecentMovementsState extends State<RecentMovements> {
                           const SizedBox(height: 12),
                       itemBuilder: (context, index) {
                         final item = movimentos[index];
-                        final isEntrada = item.operacao == 'entrada';
+                        // final isEntrada = item.operacao == 'entrada';
                         return _buildMovementItem(
                           isDesktop: widget.isDesktop,
-                          isEntrada: isEntrada,
+                          operacaoRaw: item.operacao,
                           title: item.titulo,
                           tag: item.tag,
                           user: item.usuarioLabel,
@@ -262,23 +272,41 @@ class _RecentMovementsState extends State<RecentMovements> {
 
   Widget _buildMovementItem({
     required bool isDesktop,
-    required bool isEntrada,
+    required String operacaoRaw,
     required String title,
     required String tag,
     required String user,
     required String time,
     required String amount,
   }) {
-    final icon = isEntrada ? Icons.arrow_downward : Icons.arrow_upward;
-    final iconColor =
-        isEntrada ? Colors.green.shade700 : Colors.red.shade700;
-    final statusText = isEntrada ? 'Entrada' : 'Saída';
-    final statusBgColor = isEntrada
-        ? const Color.fromARGB(255, 195, 236, 198)
-        : const Color.fromARGB(255, 247, 200, 204);
-    final statusTextColor =
-        isEntrada ? Colors.green.shade800 : Colors.red.shade800;
+    final op = operacaoRaw.toLowerCase();
+    
+    IconData icon;
+    Color iconColor;
+    String statusText;
+    Color statusBgColor;
+    Color statusTextColor;
 
+    // Lógica de Cores Unificada
+    if (op == 'entrada' || op == 'devolucao') {
+       icon = Icons.arrow_downward;
+       iconColor = Colors.green.shade700;
+       statusText = op == 'devolucao' ? 'Devolução' : 'Entrada';
+       statusBgColor = const Color.fromARGB(255, 195, 236, 198);
+       statusTextColor = Colors.green.shade800;
+    } else if (op == 'saida' || op == 'retirada' || op == 'consumo') {
+       icon = Icons.arrow_upward;
+       iconColor = Colors.red.shade700;
+       statusText = op == 'retirada' ? 'Retirada' : 'Saída';
+       statusBgColor = const Color.fromARGB(255, 247, 200, 204);
+       statusTextColor = Colors.red.shade800;
+    } else {
+       icon = Icons.swap_horiz;
+       iconColor = Colors.blue.shade700;
+       statusText = 'Transf.';
+       statusBgColor = Colors.blue.shade100;
+       statusTextColor = Colors.blue.shade800;
+    }
     Widget titleWidget = isDesktop
         ? Text(
             title,

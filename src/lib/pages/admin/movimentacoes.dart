@@ -1,5 +1,3 @@
-// lib/pages/movimentacoes.dart
-
 import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
@@ -38,6 +36,7 @@ class Movimentacao {
   final String? lote;
   final double? quantidade;
   final int? responsavelId;
+  final String? responsavelNome;
   final String? observacao;
   final DateTime createdAt;
   final MaterialInfo material;
@@ -51,6 +50,7 @@ class Movimentacao {
     this.lote,
     this.quantidade,
     this.responsavelId,
+    this.responsavelNome,
     this.observacao,
     required this.createdAt,
     required this.material,
@@ -66,6 +66,7 @@ class Movimentacao {
       lote: json['lote'] as String?,
       quantidade: (json['quantidade'] as num?)?.toDouble(),
       responsavelId: json['responsavel_id'] as int?,
+      responsavelNome: json['responsavel_nome'] as String?,
       observacao: json['observacao'] as String?,
       createdAt: DateTime.parse(json['created_at'] as String),
       material: MaterialInfo.fromJson(
@@ -119,14 +120,13 @@ class _MovimentacoesRecentesPageState
 
   final ScrollController _scrollController = ScrollController();
 
-  static const String _apiHost = 'http://localhost:8080'; // mesmo do backend
+  static const String _apiHost = 'http://localhost:8080';
 
   @override
   void initState() {
     super.initState();
     _lastUpdated = DateTime.now();
 
-    // Espera o primeiro build para ter acesso ao Provider com segurança
     WidgetsBinding.instance.addPostFrameCallback((_) {
       _carregarMovimentacoes();
     });
@@ -389,23 +389,43 @@ class _MovimentacoesRecentesPageState
     IconData icon;
     Color iconColor;
     String statusText;
+    
+    final op = item.operacao?.toLowerCase() ?? '';
 
-    switch (item.operacao) {
+    switch (op) {
       case 'entrada':
         icon = Icons.arrow_downward_rounded;
         iconColor = Colors.green.shade600;
         statusText = 'Entrada';
         break;
+      case 'devolucao':
+        icon = Icons.arrow_downward_rounded;
+        iconColor = Colors.green.shade600;
+        statusText = 'Devolução';
+        break;
+
       case 'saida':
+      case 'retirada':
+      case 'consumo':
         icon = Icons.arrow_upward_rounded;
         iconColor = Colors.red.shade600;
         statusText = 'Saída';
         break;
-      default:
+      case 'transferencia':
         icon = Icons.swap_horiz_rounded;
         iconColor = Colors.blue.shade600;
         statusText = 'Transferência';
+        break;
+      default:
+
+        icon = Icons.help_outline;
+        iconColor = Colors.grey;
+        statusText = op.toUpperCase();
     }
+
+
+    final dateLocal = item.createdAt.toLocal();
+    final dateFormatted = DateFormat('dd/MM/yyyy, HH:mm').format(dateLocal);
 
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 24.0),
@@ -445,14 +465,14 @@ class _MovimentacoesRecentesPageState
                   Row(
                     children: [
                       Text(
-                        'Técnico • ',
-                        style: TextStyle(
-                          color: Colors.grey.shade600,
-                          fontSize: 13,
-                        ),
+                        // Agora usa o nome se disponível
+                        item.responsavelNome != null 
+                            ? '${item.responsavelNome} • ' 
+                            : (item.responsavelId != null ? 'Resp. #${item.responsavelId} • ' : ''),
+                        style: TextStyle(color: Colors.grey.shade600, fontSize: 13),
                       ),
                       Text(
-                        DateFormat('dd/MM/yyyy, HH:mm').format(item.createdAt),
+                        dateFormatted, // Usa data corrigida
                         style: TextStyle(
                           color: Colors.grey.shade600,
                           fontSize: 13,

@@ -167,63 +167,112 @@ Future<Response> _post(RequestContext context) async {
 }
 
 Future<Response> _patch(RequestContext context) async {
-  // 1. Verificação de Segurança Básica (Token existe?)
-  final authHeader = context.request.headers['authorization'];
-  if (authHeader == null || !authHeader.startsWith('Bearer ')) {
-    return Response(statusCode: 401, body: 'Token inválido ou ausente');
-  }
-
   final connection = context.read<Connection>();
-  
+
   try {
-    // 2. Lê e valida o corpo da requisição
     final body = await context.request.json() as Map<String, dynamic>;
+    
+    // O ID é obrigatório para saber quem atualizar
     final id = body['id'] as int?;
-    final novaDataStr = body['proxima_calibracao_em'] as String?;
-
     if (id == null) {
-      return Response(statusCode: 400, body: 'O campo "id" (int) é obrigatório.');
-    }
-    if (novaDataStr == null) {
-      return Response(statusCode: 400, body: 'O campo "proxima_calibracao_em" é obrigatório.');
+      return Response.json(statusCode: 400, body: {'error': 'O campo "id" é obrigatório.'});
     }
 
-    final novaData = DateTime.tryParse(novaDataStr);
-    if (novaData == null) {
-      return Response(statusCode: 400, body: 'Formato de data inválido.');
+    // Lista de campos possíveis para atualização
+    final updateClauses = <String>[];
+    final parameters = <String, dynamic>{'id': id};
+
+    // 1. Patrimônio
+    if (body.containsKey('patrimonio')) {
+      final p = body['patrimonio'] as String?;
+      if (p != null && p.isNotEmpty) {
+        updateClauses.add('patrimonio = @patrimonio');
+        parameters['patrimonio'] = p;
+      }
     }
 
-    // 3. Executa a atualização no banco
-    // Forçamos UTC para evitar problemas de fuso horário
+    // 2. Descrição
+    if (body.containsKey('descricao')) {
+      final d = body['descricao'] as String?;
+      if (d != null && d.isNotEmpty) {
+        updateClauses.add('descricao = @descricao');
+        parameters['descricao'] = d;
+      }
+    }
+
+    // 3. Categoria
+    if (body.containsKey('categoria')) {
+      updateClauses.add('categoria = @categoria');
+      parameters['categoria'] = body['categoria']; // Pode ser null
+    }
+
+    // 4. Local Atual (Mudança de base via admin)
+    if (body.containsKey('local_atual_id')) {
+      final lid = body['local_atual_id'] as int?;
+      if (lid != null) {
+         updateClauses.add('local_atual_id = @lid');
+         parameters['lid'] = lid;
+      }
+    }
+
+    // 5. Data de Calibração
+    if (body.containsKey('proxima_calibracao_em')) {
+      final dataStr = body['proxima_calibracao_em'] as String?;
+      if (dataStr != null) {
+        final data = DateTime.tryParse(dataStr);
+        if (data != null) {
+          updateClauses.add('proxima_calibracao_em = @calib');
+          parameters['calib'] = data.toUtc();
+        }
+      }
+    }
+
+    // 6. Status ATIVO/INATIVO (O que você precisa)
+    if (body.containsKey('ativo')) {
+      final ativo = body['ativo'];
+      if (ativo is bool) {
+        updateClauses.add('ativo = @ativo');
+        parameters['ativo'] = ativo;
+        
+        // REGRA DE NEGÓCIO: Se desativar, muda status para 'inativo' para consistência?
+        // Opcional, mas recomendado:
+        // if (!ativo) {
+        //   updateClauses.add("status = 'inativo'"); 
+        // }
+      }
+    }
+
+    // Verifica se há algo para atualizar
+    if (updateClauses.isEmpty) {
+      return Response.json(statusCode: 200, body: {'message': 'Nada a atualizar.'});
+    }
+
+    // Sempre atualiza o timestamp
+    updateClauses.add('updated_at = NOW()');
+
+    // Executa a query dinâmica
+    final query = 'UPDATE instrumentos SET ${updateClauses.join(', ')} WHERE id = @id';
+
     final result = await connection.execute(
-      Sql.named('''
-        UPDATE instrumentos
-        SET proxima_calibracao_em = @novaData,
-            updated_at = NOW()
-        WHERE id = @id
-        RETURNING id, proxima_calibracao_em
-      '''),
-      parameters: {
-        'id': id,
-        'novaData': novaData.toUtc(),
-      },
+      Sql.named(query),
+      parameters: parameters,
     );
 
-    if (result.isEmpty) {
-      return Response(statusCode: 404, body: 'Instrumento não encontrado.');
+    if (result.affectedRows == 0) {
+      return Response.json(statusCode: 404, body: {'error': 'Instrumento não encontrado.'});
     }
 
-    return Response.json(
-      statusCode: 200,
-      body: {'message': 'Calibração atualizada com sucesso!'},
-    );
+    return Response.json(statusCode: 200, body: {'message': 'Instrumento atualizado com sucesso.'});
 
   } on PgException catch (e) {
-    print('Erro de banco no PATCH: $e');
-    return Response(statusCode: 500, body: 'Erro de banco de dados: ${e.message}');
+    // if (e.code == '23505') { // Unique violation (patrimonio duplicado)
+    //    return Response.json(statusCode: 409, body: {'error': 'Já existe um instrumento com este patrimônio.'});
+    // }
+    print('Erro PG no PATCH instrumentos: $e');
+    return Response.json(statusCode: 500, body: {'error': 'Erro de banco de dados.'});
   } catch (e, st) {
-    print('Erro interno no PATCH: $e\n$st');
-    return Response(statusCode: 500, body: 'Erro interno ao atualizar calibração.');
+    print('Erro interno PATCH instrumentos: $e\n$st');
+    return Response.json(statusCode: 500, body: {'error': 'Erro interno.'});
   }
 }
 

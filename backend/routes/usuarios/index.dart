@@ -29,7 +29,7 @@ Future<Response> _get(RequestContext context) async {
 
     // Busca e Filtro
     final searchQuery = query['q'];
-    final category = query['categoria'];
+    final filtroFuncaoRaw = query['funcao'];
 
     // Paginação
     final limit = int.tryParse(query['limit'] ?? '20') ?? 20;
@@ -50,11 +50,24 @@ Future<Response> _get(RequestContext context) async {
     }
 
     // O front-end envia 'Todas as Categorias', que não devemos filtrar
-    if (category != null &&
-        category.isNotEmpty &&
-        category != 'Todas as Categorias') {
-      whereClauses.add('funcao = @categoria');
-      parameters['categoria'] = category;
+    if (filtroFuncaoRaw != null && 
+        filtroFuncaoRaw.isNotEmpty && 
+        filtroFuncaoRaw != 'Todos os Perfis') {
+      
+      String valorDb;
+      // Normaliza para minúsculo para facilitar a comparação
+      final v = filtroFuncaoRaw.toLowerCase();
+      
+      if (v.contains('admin')) {
+        valorDb = 'admin';
+      } else if (v.contains('tecnico') || v.contains('técnico')) {
+        valorDb = 'tecnico';
+      } else {
+        valorDb = filtroFuncaoRaw; // Fallback
+      }
+
+      whereClauses.add('funcao = @funcao');
+      parameters['funcao'] = valorDb;
     }
 
     if (whereClauses.isNotEmpty) {
@@ -157,11 +170,15 @@ Future<Response> _patch(RequestContext context) async {
   final connection = context.read<Connection>();
 
   try {
+    // 1. LÊ O CORPO
     final body = await context.request.json() as Map<String, dynamic>;
 
-    // 1. Validação do ID
+    print('=== PATCH /usuarios DEBUG ===');
+    print('Body recebido: $body');
+
     final id = body['id_usuario'];
     if (id == null) {
+      print('>>> ERRO: id_usuario nulo');
       return Response.json(
         statusCode: 400,
         body: {'error': 'O campo "id_usuario" é obrigatório.'},
@@ -171,54 +188,72 @@ Future<Response> _patch(RequestContext context) async {
     final updateClauses = <String>[];
     final parameters = <String, dynamic>{'id': id};
 
-    // --- (A) Lógica para NOME ---
+    // --- (A) NOME ---
     if (body.containsKey('nome')) {
       final nome = body['nome'] as String?;
-      if (nome == null || nome.trim().isEmpty) {
-        return Response.json(
-            statusCode: 400, body: {'error': 'O nome não pode ser vazio.'});
+      if (nome != null && nome.trim().isNotEmpty) {
+        updateClauses.add('nome = @nome');
+        parameters['nome'] = nome.trim();
       }
-      updateClauses.add('nome = @nome');
-      parameters['nome'] = nome.trim();
     }
 
-    // --- (B) Lógica para FUNÇÃO ---
+    // --- (B) EMAIL ---
+    if (body.containsKey('email')) {
+      final email = body['email'] as String?;
+      if (email != null && email.trim().isNotEmpty) {
+        updateClauses.add('email = @email');
+        parameters['email'] = email.trim().toLowerCase();
+      }
+    }
+
+    // --- (C) FUNÇÃO ---
     if (body.containsKey('funcao')) {
       final funcao = body['funcao'] as String?;
-      if (funcao != 'admin' && funcao != 'tecnico') {
+      print('>>> Processando funcao: "$funcao"'); 
+
+      if (funcao == 'admin' || funcao == 'tecnico') {
+        updateClauses.add('funcao = @funcao');
+        parameters['funcao'] = funcao;
+      } else {
+        print('>>> ERRO: Funcao invalida ou nula');
         return Response.json(
             statusCode: 400,
             body: {'error': 'Função inválida. Use "admin" ou "tecnico".'});
       }
-      updateClauses.add('funcao = @funcao');
-      parameters['funcao'] = funcao;
     }
 
-    // --- (C) Lógica para ATIVO (Ativar/Desativar) ---
-    // NOVO: Verifica se o campo "ativo" foi enviado
+    // --- (D) ATIVO ---
     if (body.containsKey('ativo')) {
       final ativo = body['ativo'];
-
-      // Valida se é realmente um booleano (true ou false)
-      if (ativo is! bool) {
-        return Response.json(statusCode: 400, body: {
-          'error': 'O campo "ativo" deve ser booleano (true ou false).'
-        });
+      if (ativo is bool) {
+        updateClauses.add('ativo = @ativo');
+        parameters['ativo'] = ativo;
       }
-
-      updateClauses.add('ativo = @ativo');
-      parameters['ativo'] = ativo;
+    }
+    
+    // --- (E) SENHA ---
+    if (body.containsKey('senha')) {
+       final senha = body['senha'] as String?;
+       if (senha != null && senha.isNotEmpty) {
+           if (senha.length < 8) {
+               return Response.json(statusCode: 400, body: {'error': 'Senha curta.'});
+           }
+           updateClauses.add('senha = @senha');
+           parameters['senha'] = hashPassword(senha); 
+       }
     }
 
-    // 2. Se nada foi enviado para trocar
+    print('Clauses: $updateClauses');
+    print('Params: $parameters');
+
     if (updateClauses.isEmpty) {
+      print('>>> AVISO: Nada a atualizar');
       return Response.json(
-        statusCode: 400,
-        body: {'error': 'Nenhum campo válido enviado (nome, funcao ou ativo).'},
+        statusCode: 200,
+        body: {'message': 'Nenhum campo válido enviado para atualização.'},
       );
     }
 
-    // 3. Executa a Query
     final query =
         'UPDATE usuarios SET ${updateClauses.join(', ')} WHERE id_usuario = @id';
 
@@ -228,19 +263,25 @@ Future<Response> _patch(RequestContext context) async {
     );
 
     if (result.affectedRows == 0) {
+      print('>>> ERRO: Usuário ID $id não encontrado no banco.');
       return Response.json(
         statusCode: 404,
         body: {'error': 'Usuário com id $id não encontrado.'},
       );
     }
 
+    print('=== SUCESSO ===');
     return Response.json(body: {'message': 'Usuário atualizado com sucesso!'});
+
+  } on PgException catch (e) {
+    if (e.message.contains('23505') == true) {
+       return Response.json(statusCode: 409, body: {'error': 'Email duplicado.'});
+    }
+    print('Erro PG no PATCH: $e');
+    return Response.json(statusCode: 500, body: {'error': 'Erro de banco.'});
   } catch (e, st) {
-    print('Erro no PATCH de usuário: $e\n$st');
-    return Response.json(
-      statusCode: 500,
-      body: {'error': 'Erro interno ao atualizar usuário.'},
-    );
+    print('Erro interno PATCH: $e\n$st');
+    return Response.json(statusCode: 500, body: {'error': 'Erro interno.'});
   }
 }
 

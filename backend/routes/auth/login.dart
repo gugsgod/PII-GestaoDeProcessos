@@ -38,7 +38,8 @@ Future<Response> onRequest(RequestContext context) async {
       Sql.named('''
         SELECT id_usuario, nome, email, funcao, senha
         FROM usuarios
-        WHERE email = @email
+        WHERE email = @email 
+          AND ativo = true
         LIMIT 1
       '''),
       parameters: {'email': email},

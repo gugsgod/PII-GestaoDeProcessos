@@ -1,10 +1,15 @@
 import 'package:flutter/material.dart';
+import 'package:provider/provider.dart';
+import 'package:src/auth/auth_store.dart';
 import 'package:src/widgets/admin/home_admin/update_status_bar.dart';
 import '../../widgets/admin/home_admin/admin_drawer.dart';
 import '../../widgets/admin/materiais_admin/filter_bar.dart';
 import 'animated_network_background.dart';
 import 'dart:convert';
 import 'package:http/http.dart' as http;
+import 'package:pdf/pdf.dart';
+import 'package:pdf/widgets.dart' as pw;
+import 'package:printing/printing.dart';
 
 // =============== MODELOS ===============
 
@@ -13,14 +18,14 @@ class Pessoas {
   final String nome;
   final String email;
   final String funcao;
-  final String? hash;
+  final bool ativo;
 
   Pessoas({
     required this.id,
     required this.nome,
     required this.email,
     required this.funcao,
-    this.hash,
+    required this.ativo,
   });
 
   factory Pessoas.fromJson(Map<String, dynamic> json) {
@@ -28,7 +33,8 @@ class Pessoas {
       id: json['id_usuario'] ?? 0,
       nome: json['nome'] ?? 'N/A',
       email: json['email'] ?? 'N/A',
-      funcao: json['funcao'] ?? 'N/A',
+      funcao: json['funcao'] ?? 'tecnico',
+      ativo: json['ativo'] ?? true,
     );
   }
 }
@@ -84,7 +90,14 @@ class PessoasPageState extends State<PessoasPage> {
     }
 
     if (_selectedPerfil != "Todos os Perfis") {
-      queryParams["funcao"] = _selectedPerfil;
+      // Mapeia o nome visual para o valor da API
+      if (_selectedPerfil == 'Administrador') {
+        queryParams["funcao"] = "admin";
+      } else if (_selectedPerfil == 'Técnico' || _selectedPerfil == 'Tecnico') {
+        queryParams["funcao"] = "tecnico";
+      } else {
+        queryParams["funcao"] = _selectedPerfil; // Fallback
+      }
     }
 
     final uri = Uri.parse("$baseUrl/usuarios").replace(queryParameters: queryParams);
@@ -111,33 +124,150 @@ class PessoasPageState extends State<PessoasPage> {
   }
 
   // ---------- API: ADICIONAR NOVA PESSOA (POST) ----------
-  Future<bool> _addNewUser(String nome, String email, String senha, String funcao) async {
+  Future<bool> _addNewUser(Map<String, dynamic> data) async {
+    return _sendRequest('POST', data);
+  }
+
+  // ---------- API: EDITAR (PATCH) ----------
+  Future<bool> _editUser(int id, Map<String, dynamic> data) async {
+    data['id_usuario'] = id;
+    return _sendRequest('PATCH', data);
+  }
+
+  // ---------- API: REMOVER (DELETE/SOFT) ----------
+  Future<void>  _removeUser(Pessoas pessoa) async {
+    final confirm = await _showDeleteConfirmDialog(pessoa);
+    if (confirm != true) return;
+
+    // Reutiliza a lógica de envio com método DELETE
+    final success = await _sendRequest('DELETE', {'id_usuario': pessoa.id});
+    if (success) {
+      _showSnackBar("Usuário desativado com sucesso!", isError: false);
+      _fetchPessoas();
+    }
+  }
+
+  Future<bool> _sendRequest(String method, Map<String, dynamic> data) async {
     const baseUrl = "http://localhost:8080";
     final uri = Uri.parse("$baseUrl/usuarios");
+    final token = context.read<AuthStore>().token;
 
     try {
-      final response = await http.post(
-        uri,
-        headers: {"Content-Type": "application/json", "Accept": "application/json"},
-        body: json.encode({"nome": nome, "email": email, "senha": senha, "funcao": funcao}),
-      );
+      final request = http.Request(method, uri);
+      request.headers.addAll({
+        "Content-Type": "application/json", 
+        "Authorization": "Bearer $token"
+      });
+      request.body = json.encode(data);
 
-      if (response.statusCode == 201) {
-        _showSnackBar("Usuário '$nome' cadastrado com sucesso!", isError: false);
-        _fetchPessoas();
+      final streamedResponse = await request.send();
+      final response = await http.Response.fromStream(streamedResponse);
+
+      if (response.statusCode >= 200 && response.statusCode < 300) {
         return true;
       } else {
         final errorBody = json.decode(utf8.decode(response.bodyBytes));
-        throw Exception(errorBody["error"] ?? "Falha ao cadastrar usuário");
+        throw Exception(errorBody["error"] ?? "Falha na operação");
       }
     } catch (e) {
-      _showSnackBar("Erro: ${e.toString().replaceAll("Exception: ", "")}", isError: true);
+      _showSnackBar("Erro: $e", isError: true);
       return false;
     }
   }
 
+  void _showUserDialog({Pessoas? pessoa}) {
+    showDialog(
+      context: context,
+      builder: (BuildContext context) {
+        return _AddOrEditUserDialog(
+          userToEdit: pessoa,
+          onSave: (data) async {
+            bool success;
+            if (pessoa == null) {
+              success = await _addNewUser(data);
+              if (success) _showSnackBar("Usuário criado!", isError: false);
+            } else {
+              success = await _editUser(pessoa.id, data);
+              if (success) _showSnackBar("Usuário atualizado!", isError: false);
+            }
+            
+            if (success) {
+               if (mounted) Navigator.of(context).pop();
+               _fetchPessoas();
+            }
+          },
+        );
+      },
+    );
+  }
+
+  Future<bool?> _showDeleteConfirmDialog(Pessoas pessoa) {
+    const Color primaryColor = Color(0xFF080023);
+    return showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        backgroundColor: primaryColor,
+        title: const Text('Confirmar Desativação', style: TextStyle(color: Colors.white)),
+        content: Text("Deseja desativar o acesso de '${pessoa.nome}'?", style: const TextStyle(color: Colors.white70)),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Cancelar', style: TextStyle(color: Colors.white70))),
+          ElevatedButton(onPressed: () => Navigator.pop(ctx, true), style: ElevatedButton.styleFrom(backgroundColor: Colors.red), child: const Text('Desativar')),
+        ],
+      ),
+    );
+  }
+
   void _onSearchChanged(String query) {
     _fetchPessoas();
+  }
+
+  Future<void> _exportarPDF() async {
+    final pdf = pw.Document();
+    final font = await PdfGoogleFonts.nunitoExtraLight();
+
+    pdf.addPage(
+      pw.MultiPage(
+        pageFormat: PdfPageFormat.a4,
+        theme: pw.ThemeData.withFont(base: font),
+        build: (pw.Context context) {
+          return [
+            pw.Center(
+              child: pw.Text(
+                'Relatório de Pessoas',
+                style: pw.TextStyle(fontSize: 20, fontWeight: pw.FontWeight.bold),
+              ),
+            ),
+            pw.SizedBox(height: 20),
+            pw.Table.fromTextArray(
+              headers: ['Nome', 'Email', 'Perfil'],
+              data: _pessoas.map((p) {
+                // Capitaliza a função para ficar bonito no PDF (ex: tecnico -> Técnico)
+                final funcao = p.funcao.isNotEmpty 
+                    ? '${p.funcao[0].toUpperCase()}${p.funcao.substring(1)}' 
+                    : 'N/A';
+                
+                return [
+                  p.nome,
+                  p.email,
+                  funcao,
+                ];
+              }).toList(),
+              headerStyle: pw.TextStyle(fontWeight: pw.FontWeight.bold),
+              cellStyle: const pw.TextStyle(fontSize: 10),
+              border: pw.TableBorder.all(width: 0.5, color: PdfColors.grey),
+              headerDecoration: const pw.BoxDecoration(color: PdfColors.grey300),
+              cellAlignments: {
+                0: pw.Alignment.centerLeft,
+                1: pw.Alignment.centerLeft,
+                2: pw.Alignment.center,
+              },
+            ),
+          ];
+        },
+      ),
+    );
+
+    await Printing.sharePdf(bytes: await pdf.save(), filename: 'pessoas.pdf');
   }
 
   @override
@@ -180,14 +310,14 @@ class PessoasPageState extends State<PessoasPage> {
                 mainAxisAlignment: MainAxisAlignment.end,
                 children: [
                   OutlinedButton.icon(
-                    onPressed: () {},
+                    onPressed: _exportarPDF,
                     icon: const Icon(Icons.upload_file, color: Colors.white70),
                     label: const Text('Exportar', style: TextStyle(color: Colors.white)),
                     style: OutlinedButton.styleFrom(side: const BorderSide(color: Colors.white30)),
                   ),
                   const SizedBox(width: 16),
                   ElevatedButton.icon(
-                    onPressed: _showAddUserDialog,
+                    onPressed: _showUserDialog,
                     icon: const Icon(Icons.add, color: Colors.white),
                     label: const Text('Adicionar Novo Usuário'),
                     style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFF3B82F6), foregroundColor: Colors.white),
@@ -208,7 +338,7 @@ class PessoasPageState extends State<PessoasPage> {
                 onSearchChanged: (query) => _fetchPessoas(),
                 categories: [
                   'Todos os Perfis',
-                  'Tecnico',
+                  'Técnico',
                   'Administrador',
                 ],
                 searchHint: 'Buscar por nome ou matrícula...',
@@ -223,19 +353,6 @@ class PessoasPageState extends State<PessoasPage> {
           ),
         ),
       ),
-    );
-  }
-
-  void _showAddUserDialog() {
-    showDialog(
-      context: context,
-      builder: (BuildContext context) {
-        return _AddUserDialog(
-          onSave: (nome, email, senha, funcao) async {
-            return await _addNewUser(nome, email, senha, funcao);
-          },
-        );
-      },
     );
   }
 
@@ -321,9 +438,16 @@ class PessoasPageState extends State<PessoasPage> {
           SizedBox(
             width: 56,
             child: Center(
-              child: IconButton(
-                icon: const Icon(Icons.more_horiz, color: Colors.black54),
-                onPressed: () {},
+              child: PopupMenuButton<String>(
+                icon: const Icon(Icons.more_horiz, color: Colors.grey),
+                onSelected: (val) {
+                  if (val == 'edit') _showUserDialog(pessoa: item);
+                  if (val == 'remove') _removeUser(item);
+                },
+                itemBuilder: (ctx) => [
+                  const PopupMenuItem(value: 'edit', child: Row(children: [Icon(Icons.edit, color: Colors.blue), SizedBox(width: 8), Text("Editar")])),
+                  const PopupMenuItem(value: 'remove', child: Row(children: [Icon(Icons.block, color: Colors.red), SizedBox(width: 8), Text("Desativar")])),
+                ],
               ),
             ),
           ),
@@ -362,153 +486,163 @@ class PessoasPageState extends State<PessoasPage> {
 }
 
 // ===== DIALOG =====
-class _AddUserDialog extends StatefulWidget {
-  final Future<bool> Function(String nome, String email, String senha, String funcaoApi) onSave;
-  const _AddUserDialog({required this.onSave});
+class _AddOrEditUserDialog extends StatefulWidget {
+  final Pessoas? userToEdit;
+  final Future<void> Function(Map<String, dynamic>) onSave;
+
+  const _AddOrEditUserDialog({this.userToEdit, required this.onSave});
 
   @override
-  State<_AddUserDialog> createState() => _AddUserDialogState();
+  State<_AddOrEditUserDialog> createState() => _AddOrEditUserDialogState();
 }
 
-class _AddUserDialogState extends State<_AddUserDialog> {
-  final GlobalKey<FormState> _formKey = GlobalKey<FormState>();
-  final TextEditingController _nomeController = TextEditingController();
-  final TextEditingController _emailController = TextEditingController();
-  final TextEditingController _senhaController = TextEditingController();
+class _AddOrEditUserDialogState extends State<_AddOrEditUserDialog> {
+  final _formKey = GlobalKey<FormState>();
+  final _nomeController = TextEditingController();
+  final _emailController = TextEditingController();
+  final _senhaController = TextEditingController();
 
+  // Mapeamento Visual -> API
   final Map<String, String> _funcoesMap = {'Técnico': 'tecnico', 'Administrador': 'admin'};
   late String _selectedFuncaoDisplay;
+  bool _ativo = true;
   bool _isSaving = false;
+
+  bool get isEditing => widget.userToEdit != null;
 
   @override
   void initState() {
     super.initState();
-    _selectedFuncaoDisplay = _funcoesMap.keys.first;
-  }
-
-  @override
-  void dispose() {
-    _nomeController.dispose();
-    _emailController.dispose();
-    _senhaController.dispose();
-    super.dispose();
-  }
-
-  Future<void> _saveUser() async {
-    if (!_formKey.currentState!.validate()) return;
-
-    setState(() => _isSaving = true);
-    final funcaoApiValue = _funcoesMap[_selectedFuncaoDisplay]!;
-
-    final success = await widget.onSave(
-      _nomeController.text.trim(),
-      _emailController.text.trim(),
-      _senhaController.text.trim(),
-      funcaoApiValue,
-    );
-
-    if (success && mounted) {
-      Navigator.of(context).pop();
+    if (isEditing) {
+      final u = widget.userToEdit!;
+      _nomeController.text = u.nome;
+      _emailController.text = u.email;
+      _ativo = u.ativo;
+      
+      // Tenta encontrar a chave correta para o valor da API
+      _selectedFuncaoDisplay = _funcoesMap.keys.firstWhere(
+          (k) => _funcoesMap[k] == u.funcao, 
+          orElse: () => 'Técnico'
+      );
     } else {
-      setState(() => _isSaving = false);
+      _selectedFuncaoDisplay = 'Técnico';
     }
+  }
+
+  Future<void> _submit() async {
+    if (!_formKey.currentState!.validate()) return;
+    setState(() => _isSaving = true);
+
+    final data = {
+      'nome': _nomeController.text.trim(),
+      'email': _emailController.text.trim(),
+      'funcao': _funcoesMap[_selectedFuncaoDisplay],
+      'ativo': _ativo,
+    };
+
+    // Senha é opcional na edição
+    if (!isEditing || _senhaController.text.isNotEmpty) {
+       data['senha'] = _senhaController.text.trim();
+    }
+
+    await widget.onSave(data);
+    if (mounted) setState(() => _isSaving = false);
   }
 
   @override
   Widget build(BuildContext context) {
-    const Color primaryColor = Color(0xFF080023);
-    const Color inputFillColor = Color.fromARGB(255, 30, 24, 53);
-    const Color borderColor = Colors.white30;
-    const Color hintColor = Colors.white60;
+    const primaryColor = Color(0xFF080023);
+    const inputFill = Color.fromARGB(255, 30, 24, 53);
 
     return AlertDialog(
       backgroundColor: primaryColor,
-      title: const Text('Adicionar Novo Usuário', style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
+      title: Text(isEditing ? 'Editar Usuário' : 'Novo Usuário', style: const TextStyle(color: Colors.white)),
       content: Form(
         key: _formKey,
         child: SingleChildScrollView(
           child: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
-              TextFormField(
-                controller: _nomeController,
-                style: const TextStyle(color: Colors.white),
-                decoration: _buildInputDecoration(label: 'Nome', icon: Icons.person),
-                validator: (value) => (value == null || value.trim().isEmpty) ? 'O nome é obrigatório' : null,
-              ),
+              _buildTextField(controller: _nomeController, label: 'Nome', icon: Icons.person),
               const SizedBox(height: 16),
-              TextFormField(
-                controller: _emailController,
-                style: const TextStyle(color: Colors.white),
-                keyboardType: TextInputType.emailAddress,
-                decoration: _buildInputDecoration(label: 'Email', icon: Icons.email),
-                validator: (value) {
-                  if (value == null || value.trim().isEmpty) return 'O email é obrigatório';
-                  if (!RegExp(r'^[\w-\.]+@([\w-]+\.)+[\w-]{2,4}$').hasMatch(value)) return 'Insira um email válido';
-                  return null;
-                },
-              ),
+              _buildTextField(controller: _emailController, label: 'Email', icon: Icons.email),
               const SizedBox(height: 16),
+              
+              // Senha (Opcional na edição)
               TextFormField(
                 controller: _senhaController,
-                style: const TextStyle(color: Colors.white),
                 obscureText: true,
-                decoration: _buildInputDecoration(label: 'Senha', icon: Icons.lock),
-                validator: (value) {
-                  if (value == null || value.isEmpty) return 'A senha é obrigatória';
-                  if (value.length < 8) return 'A senha deve ter no mínimo 8 caracteres';
+                style: const TextStyle(color: Colors.white),
+                decoration: _buildInputDecoration(
+                  label: isEditing ? 'Nova Senha (Opcional)' : 'Senha', 
+                  icon: Icons.lock
+                ),
+                validator: (val) {
+                  if (!isEditing && (val == null || val.isEmpty)) return 'Senha obrigatória';
+                  if (val != null && val.isNotEmpty && val.length < 6) return 'Mínimo 6 caracteres';
                   return null;
                 },
               ),
               const SizedBox(height: 16),
+
+              // Dropdown Função
               Container(
-                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
-                decoration: BoxDecoration(color: inputFillColor, borderRadius: BorderRadius.circular(12), border: Border.all(color: borderColor)),
+                padding: const EdgeInsets.symmetric(horizontal: 12),
+                decoration: BoxDecoration(color: inputFill, borderRadius: BorderRadius.circular(12)),
                 child: DropdownButtonHideUnderline(
                   child: DropdownButton<String>(
                     value: _selectedFuncaoDisplay,
-                    isExpanded: true,
                     dropdownColor: primaryColor,
-                    icon: const Icon(Icons.arrow_drop_down, color: hintColor),
-                    style: const TextStyle(color: Colors.white, fontSize: 16),
-                    onChanged: (newValue) {
-                      if (newValue != null) setState(() => _selectedFuncaoDisplay = newValue);
-                    },
-                    items: _funcoesMap.keys.map((displayValue) => DropdownMenuItem<String>(value: displayValue, child: Text(displayValue))).toList(),
+                    style: const TextStyle(color: Colors.white),
+                    icon: const Icon(Icons.arrow_drop_down, color: Colors.white60),
+                    items: _funcoesMap.keys.map((k) => DropdownMenuItem(value: k, child: Text(k))).toList(),
+                    onChanged: (v) => setState(() => _selectedFuncaoDisplay = v!),
                   ),
                 ),
               ),
+
+              // Switch Ativo (Só na edição)
+              if (isEditing) ...[
+                const SizedBox(height: 16),
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: [
+                    const Text("Usuário Ativo?", style: TextStyle(color: Colors.white)),
+                    Switch(
+                      value: _ativo, 
+                      onChanged: (v) => setState(() => _ativo = v), 
+                      activeColor: Colors.blue
+                    ),
+                  ],
+                ),
+              ]
             ],
           ),
         ),
       ),
       actions: [
-        TextButton(onPressed: () => Navigator.of(context).pop(), child: const Text('Cancelar', style: TextStyle(color: Colors.white70))),
-        ElevatedButton(
-          onPressed: _isSaving ? null : _saveUser,
-          style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFF3B82F6), foregroundColor: Colors.white),
-          child: _isSaving
-              ? const SizedBox(height: 16, width: 16, child: CircularProgressIndicator(color: Colors.white, strokeWidth: 2))
-              : const Text('Salvar'),
-        ),
+        TextButton(onPressed: () => Navigator.pop(context), child: const Text("Cancelar", style: TextStyle(color: Colors.white70))),
+        ElevatedButton(onPressed: _isSaving ? null : _submit, child: _isSaving ? const CircularProgressIndicator(color: Colors.white) : const Text("Salvar")),
       ],
     );
   }
 
   InputDecoration _buildInputDecoration({required String label, required IconData icon}) {
-    const Color inputFillColor = Color.fromARGB(255, 30, 24, 53);
-    const Color borderColor = Colors.white30;
-    const Color hintColor = Colors.white60;
-
-    return InputDecoration(
-      labelText: label,
-      labelStyle: const TextStyle(color: Colors.white70),
-      prefixIcon: Icon(icon, color: hintColor),
-      filled: true,
-      fillColor: inputFillColor,
-      border: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: BorderSide.none),
-      enabledBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: BorderSide(color: borderColor)),
-      focusedBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: BorderSide(color: borderColor)),
+     // ... (Copie seu estilo padrão) ...
+     return InputDecoration(
+        labelText: label, labelStyle: const TextStyle(color: Colors.white60),
+        prefixIcon: Icon(icon, color: Colors.white60),
+        filled: true, fillColor: const Color.fromARGB(255, 30, 24, 53),
+        border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
+     );
+  }
+  
+  Widget _buildTextField({required TextEditingController controller, required String label, required IconData icon}) {
+    return TextFormField(
+      controller: controller,
+      style: const TextStyle(color: Colors.white),
+      decoration: _buildInputDecoration(label: label, icon: icon),
+      validator: (v) => (v == null || v.isEmpty) ? 'Obrigatório' : null,
     );
   }
 }

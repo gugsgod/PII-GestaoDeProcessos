@@ -1,12 +1,10 @@
 import 'package:http/http.dart' as http;
 import 'package:provider/provider.dart';
 import 'package:src/auth/auth_store.dart';
-import 'package:src/services/instrumentos_api.dart';
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import '../../widgets/admin/home_admin/admin_drawer.dart';
 import '../../widgets/admin/home_admin/update_status_bar.dart';
-import '../../widgets/admin/materiais_admin/table_actions_menu.dart';
 import 'animated_network_background.dart';
 import 'dart:async';
 import 'package:printing/printing.dart';
@@ -17,6 +15,7 @@ import 'dart:convert';
 // Enum para o status do instrumento
 enum InstrumentStatus { ativo, inativo }
 
+// Modelo para o Dropdown de Locais
 class LocalFisico {
   final int id;
   final String nome;
@@ -30,9 +29,9 @@ class LocalFisico {
   }
 }
 
-// Modelo de dados
+// Modelo de dados do Instrumento
 class Instrument {
-  final String id;
+  final int id;
   final String patrimonio;
   final String descricao;
   final String categoria;
@@ -70,7 +69,6 @@ class Instrument {
 
     final String statusString = map['status']?.toString() ?? 'inativo';
 
-    // Mapeia os status do backend para o enum do frontend
     final InstrumentStatus statusEnum;
     if (statusString == 'ativo' || statusString == 'disponivel') {
       statusEnum = InstrumentStatus.ativo;
@@ -79,12 +77,12 @@ class Instrument {
     }
 
     return Instrument(
-      id: map['id']?.toString() ?? 'N/A',
+      id: map['id'] as int? ?? 0,
       patrimonio: map['patrimonio']?.toString() ?? 'N/A',
       descricao: map['descricao']?.toString() ?? 'N/A',
       categoria: map['categoria']?.toString() ?? 'N/A',
-      status: statusEnum, // <-- USA A VARIÁVEL CORRIGIDA
-      localAtual: map['local_atual_id']?.toString() ?? 'N/A',
+      status: statusEnum,
+      localAtual: map['local_atual_nome']?.toString() ?? 'N/A',
       responsavelAtual: map['responsavel_atual_id']?.toString() ?? 'N/A',
       proximaCalibracaoEm: _parseDate(
         map['proxima_calibracao_em'],
@@ -131,50 +129,39 @@ class _InstrumentosAdminPageState extends State<InstrumentosAdminPage> {
   }
 
   Future<void> _exportarPDF() async {
-  final pdf = pw.Document();
+    final pdf = pw.Document();
+    final font = await PdfGoogleFonts.nunitoExtraLight();
 
-  pdf.addPage(
-    pw.MultiPage(
-      pageFormat: PdfPageFormat.a4,
-      build: (pw.Context context) {
-        return [
-          pw.Center(
-            child: pw.Text(
-              'Relatório de Instrumentos',
-              style: pw.TextStyle(
-                fontSize: 20,
-                fontWeight: pw.FontWeight.bold,
-              ),
+    pdf.addPage(
+      pw.MultiPage(
+        pageFormat: PdfPageFormat.a4,
+        theme: pw.ThemeData.withFont(base: font),
+        build: (pw.Context context) {
+          return [
+            pw.Center(child: pw.Text('Relatório de Instrumentos', style: pw.TextStyle(fontSize: 20, fontWeight: pw.FontWeight.bold))),
+            pw.SizedBox(height: 20),
+            pw.Table.fromTextArray(
+              headers: ['Patrimônio', 'Nome', 'Categoria', 'Local', 'Status'],
+              data: _filteredInstruments.map((i) => [
+                i.patrimonio,
+                i.descricao,
+                i.categoria,
+                i.localAtual,
+                i.ativo ? 'Ativo' : 'Inativo',
+              ]).toList(),
+              headerStyle: pw.TextStyle(fontWeight: pw.FontWeight.bold),
+              cellStyle: const pw.TextStyle(fontSize: 10),
+              border: pw.TableBorder.all(width: 0.5, color: PdfColors.grey),
+              headerDecoration: const pw.BoxDecoration(color: PdfColors.grey300),
             ),
-          ),
-          pw.SizedBox(height: 20),
+          ];
+        },
+      ),
+    );
 
-          pw.Table.fromTextArray(
-            headers: ['Código', 'Nome', 'Categoria', 'Status'],
-            data: _filteredInstruments.map((instrumento) {
-              return [
-                instrumento.id.toString(),
-                instrumento.descricao,
-                instrumento.categoria,
-                instrumento.status,
-              ];
-            }).toList(),
-            headerStyle: pw.TextStyle(fontWeight: pw.FontWeight.bold),
-            cellStyle: const pw.TextStyle(fontSize: 10),
-            border: pw.TableBorder.all(width: 0.5, color: PdfColors.grey),
-            headerDecoration: const pw.BoxDecoration(color: PdfColors.grey300),
-          ),
-        ];
-      },
-    ),
-  );
-
-  await Printing.sharePdf(
-    bytes: await pdf.save(),
-    filename: 'instrumentos.pdf',
-  );
-}
-
+    await Printing.sharePdf(bytes: await pdf.save(), filename: 'instrumentos.pdf');
+  }
+  
   Future<void> _fetchLocais() async {
     final token = Provider.of<AuthStore>(context, listen: false).token;
     if (token == null) return;
@@ -205,142 +192,124 @@ class _InstrumentosAdminPageState extends State<InstrumentosAdminPage> {
   }
 
   Future<void> _load() async {
-    // 1. Mostra o loading e limpa erros antigos
-    setState(() {
-      _isLoading = true;
-      _errorMessage = null;
-    });
-
-    // 2. FORÇA o Flutter a redesenhar a tela AGORA
-    // Isso garante que o spinner apareça antes da chamada da API
+    setState(() { _isLoading = true; _errorMessage = null; });
     await Future.delayed(Duration.zero);
-
-    // 3. Pega o token
     final auth = context.read<AuthStore>();
     final token = auth.token;
 
     if (token == null || !auth.isAuthenticated) {
       if (!mounted) return;
-      setState(() {
-        _isLoading = false;
-        _errorMessage = 'Token de acesso ausente ou inválido.';
-      });
+      setState(() { _isLoading = false; _errorMessage = 'Token de acesso ausente.'; });
       return;
     }
 
-    // 4. AGORA tenta a API (depois que o loading já está na tela)
     try {
-      final data = await fetchInstrumentos(
-        token,
-      ); // (A api já tem timeout e no-cache)
-      if (!mounted) return;
-      setState(() {
-        _instruments = data.map((e) => Instrument.fromJson(e)).toList();
-        _isLoading = false;
-        _lastUpdated = DateTime.now(); // Atualiza a hora
-      });
+      // Chama o catálogo sem filtro de ativo para ver TUDO (admin)
+      final uri = Uri.parse('http://localhost:8080/instrumentos/catalogo'); 
+      final response = await http.get(uri, headers: {'Authorization': 'Bearer $token'});
+      
+      if (response.statusCode == 200) {
+         final List<dynamic> data = json.decode(utf8.decode(response.bodyBytes));
+         setState(() {
+            _instruments = data.map((e) => Instrument.fromJson(e)).toList();
+            _isLoading = false;
+            _lastUpdated = DateTime.now();
+         });
+      } else {
+         throw Exception('Erro ${response.statusCode}');
+      }
     } catch (e) {
       if (!mounted) return;
       setState(() {
         _isLoading = false;
-        _errorMessage = e.toString().replaceAll(
-          "Exception: ",
-          "",
-        ); // Mostra o erro da API
+        _errorMessage = e.toString().replaceAll("Exception: ", "");
       });
     }
   }
 
-  Future<bool> _addNewInstrument({
-    required String patrimonio,
-    required String descricao,
-    String? categoria,
-    required int localId,
-    String? proximaCalibracao,
-  }) async {
+  // --- CRIAR (POST) ---
+  Future<bool> _addNewInstrument(Map<String, dynamic> data) async {
     final auth = context.read<AuthStore>();
     final token = auth.token;
-    if (token == null) {
-      _showSnackBar("Erro: Usuário não autenticado.", isError: true);
-      return false;
-    }
-
-    // Assume que a API está rodando localmente
-    const String baseUrl = "http://localhost:8080";
-    // O backend `index.dart` está na rota /instrumentos (assumindo)
-    final uri = Uri.parse("$baseUrl/instrumentos");
+    if (token == null) return false;
 
     try {
       final response = await http.post(
-        uri,
+        Uri.parse("http://localhost:8080/instrumentos"),
         headers: {
           "Content-Type": "application/json",
-          "Accept": "application/json",
-          "Authorization": "Bearer $token", // Envia o token
+          "Authorization": "Bearer $token",
         },
-        body: json.encode({
-          "patrimonio": patrimonio,
-          "descricao": descricao,
-          "categoria": categoria,
-          "local_atual_id": localId,
-          "proxima_calibracao_em": proximaCalibracao,
-        }),
+        body: json.encode(data),
       );
 
-      // 201 = Criado com sucesso
       if (response.statusCode == 201) {
-        _showSnackBar(
-          "Instrumento '$patrimonio' cadastrado com sucesso!",
-          isError: false,
-        );
-        _load(); // Atualiza a lista
+        _showSnackBar("Instrumento cadastrado com sucesso!", isError: false);
+        _load();
         return true;
       } else {
-        // Erro do servidor (ex: patrimônio duplicado, validação)
         final errorBody = json.decode(utf8.decode(response.bodyBytes));
-        // O backend retorna 'Erro: Patrimônio "X" já cadastrado.'
         throw Exception(errorBody["error"] ?? errorBody.toString());
       }
     } catch (e) {
-      // Erro de conexão ou outro
-      _showSnackBar(
-        "Erro: ${e.toString().replaceAll("Exception: ", "")}",
-        isError: true,
-      );
+      _showSnackBar("Erro: ${e.toString().replaceAll("Exception: ", "")}", isError: true);
       return false;
     }
   }
 
-  void _showAddInstrumentDialog() {
-    // BARRA A ABERTURA DO DIÁLOGO SE O LOCAL ESTIVER CARREGANDO OU VAZIO
-    if (_isLoadingLocais || _locais.isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text(_isLoadingLocais ? 'Carregando locais...' : 'Nenhum local cadastrado!')),
+  // --- EDITAR (PATCH) ---
+  Future<void> _editInstrument(int id, Map<String, dynamic> data) async {
+    final auth = context.read<AuthStore>();
+    final token = auth.token;
+    if (token == null) return;
+    
+    data['id'] = id; // Garante o ID no corpo
+
+    try {
+      final response = await http.patch(
+        Uri.parse("http://localhost:8080/instrumentos"), 
+        headers: {
+          "Content-Type": "application/json",
+          "Authorization": "Bearer $token",
+        },
+        body: json.encode(data),
       );
+
+      if (response.statusCode == 200) {
+        _showSnackBar("Instrumento atualizado com sucesso!", isError: false);
+        _load();
+      } else {
+        final errorBody = json.decode(utf8.decode(response.bodyBytes));
+        throw Exception(errorBody["error"] ?? "Falha ao atualizar");
+      }
+    } catch (e) {
+      _showSnackBar("Erro ao editar: ${e.toString().replaceAll("Exception: ", "")}", isError: true);
+    }
+  }
+
+  // --- DIALOG UNIFICADO ---
+  void _showInstrumentDialog({Instrument? instrument}) {
+    // Se for criação (instrument == null), exige locais carregados
+    if (instrument == null && (_isLoadingLocais || _locais.isEmpty)) {
+      _showSnackBar(_isLoadingLocais ? 'Carregando locais...' : 'Nenhum local cadastrado!', isError: true);
       return;
     }
 
     showDialog(
       context: context,
       builder: (BuildContext context) {
-        return _AddInstrumentDialog(
-          locaisDisponiveis: _locais, // <-- PASSANDO A LISTA DE LOCAIS
-          onSave:
-              (
-                String patrimonio,
-                String descricao,
-                String? categoria,
-                int localId, // AGORA OBRIGATÓRIO AQUI
-                String? proximaCalibracao,
-              ) async {
-                return await _addNewInstrument(
-                  patrimonio: patrimonio,
-                  descricao: descricao,
-                  categoria: categoria,
-                  localId: localId,
-                  proximaCalibracao: proximaCalibracao,
-                );
-              },
+        return _AddOrEditInstrumentDialog(
+          locaisDisponiveis: _locais,
+          instrumentParaEditar: instrument, 
+          // AQUI ESTÁ A CORREÇÃO: Recebe 'data' (Map)
+          onSave: (data) async {
+            if (instrument == null) {
+              return await _addNewInstrument(data);
+            } else {
+              await _editInstrument(instrument.id, data);
+              return true;
+            }
+          },
         );
       },
     );
@@ -349,132 +318,22 @@ class _InstrumentosAdminPageState extends State<InstrumentosAdminPage> {
   List<Instrument> get _filteredInstruments {
     if (_searchQuery.isEmpty) return _instruments;
     return _instruments
-        .where(
-          (i) =>
-              
+        .where((i) =>
               i.patrimonio.toLowerCase().contains(_searchQuery.toLowerCase()) ||
-              i.id.toLowerCase().contains(_searchQuery.toLowerCase()) ||
-              i.descricao.toLowerCase().contains(_searchQuery.toLowerCase())
-        )
+              i.descricao.toLowerCase().contains(_searchQuery.toLowerCase()))
         .toList();
   }
-
-  /// Placeholder para a lógica de edição
-  void _editInstrumento(Instrument instrumento) {
-    // TODO: Implementar lógica de edição
-    // 1. Abrir um Dialog (talvez reutilizar o _AddUserDialog em modo de edição)
-    // 2. Passar os dados da 'pessoa' para o dialog
-    // 3. Chamar a API de UPDATE (PUT /usuarios/{id})
-    _showSnackBar(
-      "Ação 'Editar' para ${instrumento.descricao}",
-      isError: false,
-    );
-  }
-
-  /// Placeholder para a lógica de remoção
-  void _removeInstrumento(Instrument instrumento) async {
-    // Mostra o dialog de confirmação
-    final bool? confirmed = await _showDeleteConfirmDialog(instrumento);
-
-    // Se o usuário confirmou (true) e o widget ainda está "montado" (na tela)
-    if (confirmed == true && mounted) {
-      // Chama a função que executa a exclusão
-      await _performDelete(instrumento);
-    }
-  }
-
-  /// 2. Executa a chamada de API DELETE
-  Future<void> _performDelete(Instrument instrumento) async {
-    // Pega o token de autenticação
-    final auth = context.read<AuthStore>();
-    final token = auth.token;
-    if (token == null) {
-      _showSnackBar("Erro: Usuário não autenticado.", isError: true);
-      return;
-    }
-
-    // O backend espera um 'id' (int), mas o modelo 'Instrument' tem 'id' (String).
-    // Precisamos converter.
-    final String? patrimonio = instrumento.patrimonio;
-    if (patrimonio == null) {
-      _showSnackBar("Erro: ID inválido para exclusão.", isError: true);
-      return;
-    }
-
-    // Prepara a chamada de API
-    const String baseUrl = "http://localhost:8080";
-    final uri = Uri.parse("$baseUrl/instrumentos"); // Rota do backend
-
-    try {
-      final response = await http.delete(
-        uri,
-        headers: {
-          "Content-Type": "application/json",
-          "Accept": "application/json",
-          "Authorization": "Bearer $token",
-        },
-        // O backend (index.dart) espera o ID no corpo da requisição
-        body: json.encode({'patrimonio': patrimonio}),
-      );
-
-      // 204 (No Content) é a resposta padrão de sucesso para DELETE
-      if (response.statusCode == 204 || response.statusCode == 200) {
-        _showSnackBar(
-          "Instrumento '${instrumento.descricao}' removido com sucesso!",
-          isError: false,
-        );
-        _load(); // Atualiza a lista de instrumentos
-      } else {
-        // Trata erros (como 404 - Não encontrado, 500 - Erro de servidor)
-        final errorBody = json.decode(utf8.decode(response.bodyBytes));
-        throw Exception(errorBody["error"] ?? "Falha ao remover instrumento");
-      }
-    } catch (e) {
-      // Trata erros de conexão ou outros
-      _showSnackBar(
-        "Erro: ${e.toString().replaceAll("Exception: ", "")}",
-        isError: true,
-      );
-    }
-  }
-
-  Future<bool?> _showDeleteConfirmDialog(Instrument instrumento) {
-    const Color primaryColor = Color(0xFF080023); // Cor do tema escuro
-
-    return showDialog<bool>(
-      context: context,
-      builder: (BuildContext context) {
-        return AlertDialog(
-          backgroundColor: primaryColor,
-          title: const Text(
-            'Confirmar Exclusão',
-            style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold),
-          ),
-          content: Text(
-            "Tem certeza que deseja remover o instrumento:\n\n'${instrumento.descricao}' (Patrimônio: ${instrumento.patrimonio})?\n\nEsta ação não pode ser desfeita.",
-            style: const TextStyle(color: Colors.white70),
-          ),
-          actions: [
-            TextButton(
-              onPressed: () =>
-                  Navigator.of(context).pop(false), // Retorna 'false'
-              child: const Text(
-                'Cancelar',
-                style: TextStyle(color: Colors.white70),
-              ),
-            ),
-            ElevatedButton(
-              onPressed: () =>
-                  Navigator.of(context).pop(true), // Retorna 'true'
-              style: ElevatedButton.styleFrom(
-                backgroundColor: Colors.red.shade800, // Cor de perigo
-                foregroundColor: Colors.white,
-              ),
-              child: const Text('Excluir'),
-            ),
-          ],
-        );
-      },
+  
+  void _showSnackBar(String message, {bool isError = false}) {
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(message),
+        backgroundColor: isError ? Colors.red.shade800 : Colors.green.shade800,
+        behavior: SnackBarBehavior.floating,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+        margin: const EdgeInsets.all(24),
+      ),
     );
   }
 
@@ -490,54 +349,24 @@ class _InstrumentosAdminPageState extends State<InstrumentosAdminPage> {
         toolbarHeight: 80,
         backgroundColor: secondaryColor,
         elevation: 0,
-        flexibleSpace: const AnimatedNetworkBackground(
-          numberOfParticles: 35,
-          maxDistance: 50.0,
-        ),
-        title: const Text(
-          'Instrumentos',
-          style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold),
-        ),
+        flexibleSpace: const AnimatedNetworkBackground(numberOfParticles: 35, maxDistance: 50.0),
+        title: const Text('Instrumentos', style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
         iconTheme: const IconThemeData(color: Colors.white),
-        actions: [
-          Padding(
-            padding: const EdgeInsets.only(right: 20.0),
-            child: Image.asset('assets/images/logo_metroSP.png', height: 50),
-          ),
-        ],
+        actions: [Padding(padding: const EdgeInsets.only(right: 20.0), child: Image.asset('assets/images/logo_metroSP.png', height: 50))],
       ),
-      drawer: AdminDrawer(
-        primaryColor: primaryColor,
-        secondaryColor: secondaryColor,
-      ),
+      drawer: const AdminDrawer(primaryColor: primaryColor, secondaryColor: secondaryColor),
       body: SingleChildScrollView(
         child: Padding(
           padding: const EdgeInsets.all(24.0),
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              UpdateStatusBar(
-                isDesktop: isDesktop,
-                lastUpdated: _lastUpdated,
-                onUpdate: _load,
-              ),
+              UpdateStatusBar(isDesktop: isDesktop, lastUpdated: _lastUpdated, onUpdate: _load),
               const SizedBox(height: 48),
-              const Text(
-                "Gestão de Instrumentos",
-                style: TextStyle(
-                  color: Colors.white,
-                  fontSize: 32,
-                  fontWeight: FontWeight.bold,
-                ),
-              ),
+              const Text("Gestão de Instrumentos", style: TextStyle(color: Colors.white, fontSize: 32, fontWeight: FontWeight.bold)),
               const SizedBox(height: 8),
-              const Text(
-                "Controle retiradas, devoluções e calibrações dos instrumentos",
-                style: TextStyle(color: Colors.white70, fontSize: 16),
-              ),
+              const Text("Controle retiradas, devoluções e calibrações dos instrumentos", style: TextStyle(color: Colors.white70, fontSize: 16)),
               const SizedBox(height: 24),
-
-              // Botão "Adicionar Novo Instrumento"
               Row(
                 mainAxisAlignment: MainAxisAlignment.end,
                 children: [
@@ -549,43 +378,26 @@ class _InstrumentosAdminPageState extends State<InstrumentosAdminPage> {
                   ),
                   const SizedBox(width: 16),
                   ElevatedButton.icon(
-                    onPressed: _showAddInstrumentDialog,
+                    onPressed: () => _showInstrumentDialog(), 
                     icon: const Icon(Icons.add, color: Colors.white),
                     label: const Text("Adicionar Novo Instrumento"),
-                    style: ElevatedButton.styleFrom(
-                      backgroundColor: const Color(0xFF3B82F6),
-                      foregroundColor: Colors.white,
-                    ),
+                    style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFF3B82F6), foregroundColor: Colors.white),
                   ), 
                 ],
               ),
               const SizedBox(height: 24),
-
-              // Barra de pesquisa
               TextField(
                 decoration: InputDecoration(
-                  hintText: 'Buscar instrumento...',
-                  filled: true,
-                  fillColor: Colors.white,
+                  hintText: 'Buscar instrumento...', filled: true, fillColor: Colors.white,
                   prefixIcon: const Icon(Icons.search),
-                  border: OutlineInputBorder(
-                    borderRadius: BorderRadius.circular(12),
-                    borderSide: BorderSide.none,
-                  ),
+                  border: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: BorderSide.none),
                 ),
-                onChanged: (value) {
-                  setState(() => _searchQuery = value);
-                },
+                onChanged: (value) => setState(() => _searchQuery = value),
               ),
-
               const SizedBox(height: 24),
-
               Container(
                 width: double.infinity,
-                decoration: BoxDecoration(
-                  color: Colors.white,
-                  borderRadius: BorderRadius.circular(16),
-                ),
+                decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(16)),
                 child: _buildDataTable(),
               ),
             ],
@@ -595,67 +407,11 @@ class _InstrumentosAdminPageState extends State<InstrumentosAdminPage> {
     );
   }
 
-  void _showSnackBar(String message, {bool isError = false}) {
-    if (!mounted) return;
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text(message),
-        backgroundColor: isError ? Colors.red.shade800 : Colors.green.shade800,
-        behavior: SnackBarBehavior.floating,
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-        margin: const EdgeInsets.all(24),
-      ),
-    );
-  }
-
   Widget _buildDataTable() {
     final filtered = _filteredInstruments;
-
-    if (_isLoading) {
-      return const SizedBox(
-        height: 500,
-        child: Center(
-          child: CircularProgressIndicator(
-            valueColor: AlwaysStoppedAnimation<Color>(Color(0xFF080023)),
-          ),
-        ),
-      );
-    }
-
-    if (_errorMessage != null) {
-      return SizedBox(
-        height: 500,
-        child: Center(
-          child: Column(
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: [
-              const Icon(Icons.error_outline, color: Colors.red, size: 48),
-              const SizedBox(height: 16),
-              Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 16.0),
-                child: Text(
-                  _errorMessage!,
-                  textAlign: TextAlign.center,
-                  style: const TextStyle(color: Colors.black87, fontSize: 16),
-                ),
-              ),
-              const SizedBox(height: 16),
-              ElevatedButton(
-                onPressed: _load,
-                child: const Text("Tentar Novamente"),
-              ),
-            ],
-          ),
-        ),
-      );
-    }
-
-    if (filtered.isEmpty) {
-      return const Padding(
-        padding: EdgeInsets.all(32.0),
-        child: Center(child: Text('Nenhum instrumento encontrado.')),
-      );
-    }
+    if (_isLoading) return const SizedBox(height: 500, child: Center(child: CircularProgressIndicator(valueColor: AlwaysStoppedAnimation<Color>(Color(0xFF080023)))));
+    if (_errorMessage != null) return SizedBox(height: 500, child: Center(child: Column(mainAxisAlignment: MainAxisAlignment.center, children: [const Icon(Icons.error_outline, color: Colors.red, size: 48), const SizedBox(height: 16), Text(_errorMessage!, textAlign: TextAlign.center, style: const TextStyle(color: Colors.black87, fontSize: 16)), const SizedBox(height: 16), ElevatedButton(onPressed: _load, child: const Text("Tentar Novamente"))])));
+    if (filtered.isEmpty) return const Padding(padding: EdgeInsets.all(32.0), child: Center(child: Text('Nenhum instrumento encontrado.')));
 
     return Column(
       children: [
@@ -667,10 +423,7 @@ class _InstrumentosAdminPageState extends State<InstrumentosAdminPage> {
           physics: const NeverScrollableScrollPhysics(),
           padding: EdgeInsets.zero,
           itemCount: filtered.length,
-          separatorBuilder: (_, __) => const Divider(
-            color: Color.fromARGB(59, 102, 102, 102),
-            height: 1,
-          ),
+          separatorBuilder: (_, __) => const Divider(color: Color.fromARGB(59, 102, 102, 102), height: 1),
           itemBuilder: (_, i) => _buildInstrumentRow(filtered[i]),
         ),
       ],
@@ -678,67 +431,50 @@ class _InstrumentosAdminPageState extends State<InstrumentosAdminPage> {
   }
 
   Widget _buildTableHeader() {
-    const headerStyle = TextStyle(
-      fontWeight: FontWeight.bold,
-      color: Colors.black54,
-    );
+    const headerStyle = TextStyle(fontWeight: FontWeight.bold, color: Colors.black54);
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 16.0),
       child: const Row(
         children: [
           Expanded(flex: 2, child: Text('Patrimônio', style: headerStyle)),
-          Expanded(flex: 2, child: Text('Nome', style: headerStyle)),
+          Expanded(flex: 3, child: Text('Nome', style: headerStyle)), // Aumentado flex
           Expanded(flex: 2, child: Text('Status', style: headerStyle)),
           Expanded(flex: 2, child: Text('Base Atual', style: headerStyle)),
-          Expanded(
-            flex: 2,
-            child: Text('Venc. Calibração', style: headerStyle),
-          ),
-          SizedBox(
-            width: 56,
-            child: Center(child: Text('Ações', style: headerStyle)),
-          ),
+          Expanded(flex: 2, child: Text('Venc. Calibração', style: headerStyle)),
+          SizedBox(width: 56, child: Center(child: Text('Ações', style: headerStyle))),
         ],
       ),
     );
   }
 
   Widget _buildInstrumentRow(Instrument item) {
-    const cellStyle = TextStyle(color: Colors.black87);
+    // Item inativo fica cinza visualmente na tabela
+    final cellStyle = TextStyle(color: item.ativo ? Colors.black87 : Colors.grey); 
+    
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 12.0),
       child: Row(
         children: [
           Expanded(flex: 2, child: Text(item.patrimonio, style: cellStyle)),
-          Expanded(
-            flex: 2,
-            child: Text(
-              item.descricao,
-              style: const TextStyle(
-                color: Colors.black,
-                fontWeight: FontWeight.bold,
-              ),
-            ),
-          ),
-          Expanded(flex: 2, child: _StatusChip(status: item.status)),
-          Expanded(flex: 2, child: Text(item.localAtual)),
-          Expanded(
-            flex: 2,
-            child: Text(
-              // formata DateTime para string legível
-              DateFormat('dd/MM/yyyy').format(item.proximaCalibracaoEm),
-            ),
-          ),
+          Expanded(flex: 3, child: Text(item.descricao, style: cellStyle.copyWith(fontWeight: FontWeight.bold))),
+          Expanded(flex: 2, child: _StatusChip(status: item.status, ativo: item.ativo)), // Passamos ativo também
+          Expanded(flex: 2, child: Text(item.localAtual, style: cellStyle)),
+          Expanded(flex: 2, child: Text(DateFormat('dd/MM/yyyy').format(item.proximaCalibracaoEm), style: cellStyle)),
           SizedBox(
             width: 56,
             child: Center(
-              child: TableActionsMenu(
-                onEditPressed: () {
-                  _editInstrumento(item);
+              child: PopupMenuButton<String>(
+                icon: const Icon(Icons.more_horiz, color: Colors.grey),
+                tooltip: 'Ações',
+                onSelected: (value) {
+                  if (value == 'editar') _showInstrumentDialog(instrument: item);
                 },
-                onRemovePressed: () {
-                  _removeInstrumento(item);
-                },
+                itemBuilder: (context) => [
+                  const PopupMenuItem(
+                    value: 'editar',
+                    child: Row(children: [Icon(Icons.edit, size: 20, color: Colors.blue), SizedBox(width: 12), Text('Editar')]),
+                  ),
+                ],
               ),
             ),
           ),
@@ -750,125 +486,126 @@ class _InstrumentosAdminPageState extends State<InstrumentosAdminPage> {
 
 class _StatusChip extends StatelessWidget {
   final InstrumentStatus status;
-  const _StatusChip({required this.status});
+  final bool ativo; // NOVO: Para saber se está Inativo no sistema
+  
+  const _StatusChip({required this.status, required this.ativo});
 
   @override
   Widget build(BuildContext context) {
-    final isAtivo = status == InstrumentStatus.ativo;
-    final backgroundColor = isAtivo
-        ? Colors.green.shade100
-        : Colors.red.shade100;
-    final textColor = isAtivo ? Colors.green.shade800 : Colors.red.shade800;
-    final text = isAtivo ? 'Ativo' : 'Inativo';
+    // Se 'ativo' for false, forçamos visual de Inativo
+    final isAtivoNoSistema = ativo;
+    final isDisponivel = status == InstrumentStatus.ativo;
+    
+    Color bgColor;
+    Color txtColor;
+    String text;
+
+    if (!isAtivoNoSistema) {
+      bgColor = Colors.grey.shade200;
+      txtColor = Colors.grey.shade600;
+      text = 'Inativo';
+    } else if (isDisponivel) {
+      bgColor = Colors.green.shade100;
+      txtColor = Colors.green.shade800;
+      text = 'Disponível';
+    } else {
+      bgColor = Colors.orange.shade100;
+      txtColor = Colors.orange.shade800;
+      text = 'Em Uso';
+    }
+
     return Align(
       alignment: Alignment.centerLeft,
       child: Container(
         padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
-        decoration: BoxDecoration(
-          color: backgroundColor,
-          borderRadius: BorderRadius.circular(16),
-        ),
-        child: Text(
-          text,
-          style: TextStyle(
-            color: textColor,
-            fontSize: 12,
-            fontWeight: FontWeight.bold,
-          ),
-        ),
+        decoration: BoxDecoration(color: bgColor, borderRadius: BorderRadius.circular(16)),
+        child: Text(text, style: TextStyle(color: txtColor, fontSize: 12, fontWeight: FontWeight.bold)),
       ),
     );
   }
 }
 
-class _AddInstrumentDialog extends StatefulWidget {
-  // Callback que chama a função de salvar da classe pai
-  final List<LocalFisico> locaisDisponiveis;
-  final Future<bool> Function(
-    String patrimonio,
-    String descricao,
-    String? categoria,
-    int localId,
-    String? proximaCalibracao,
-  )
-  onSave;
+// ==========================================================
+// ===== _AddOrEditInstrumentDialog (UNIFICADO) =============
+// ==========================================================
 
-  const _AddInstrumentDialog({
-    required this.onSave,
+class _AddOrEditInstrumentDialog extends StatefulWidget {
+  final List<LocalFisico> locaisDisponiveis;
+  final Instrument? instrumentParaEditar; // Se null = Criação
+  
+  // CORREÇÃO DA ASSINATURA: Espera um Map, não 6 variáveis soltas
+  final Future<bool> Function(Map<String, dynamic>) onSave;
+
+  const _AddOrEditInstrumentDialog({
     required this.locaisDisponiveis, 
+    this.instrumentParaEditar,
+    required this.onSave,
   });
 
   @override
-  State<_AddInstrumentDialog> createState() => _AddInstrumentDialogState();
+  State<_AddOrEditInstrumentDialog> createState() => _AddOrEditInstrumentDialogState();
 }
 
-class _AddInstrumentDialogState extends State<_AddInstrumentDialog> {
-  final GlobalKey<FormState> _formKey = GlobalKey<FormState>();
-  final TextEditingController _patrimonioController = TextEditingController();
-  final TextEditingController _descricaoController = TextEditingController();
-  final TextEditingController _categoriaController = TextEditingController();
-  final TextEditingController _calibracaoController = TextEditingController();
+class _AddOrEditInstrumentDialogState extends State<_AddOrEditInstrumentDialog> {
+  final _formKey = GlobalKey<FormState>();
+  final _patrimonioController = TextEditingController();
+  final _descricaoController = TextEditingController();
+  final _categoriaController = TextEditingController();
+  final _calibracaoController = TextEditingController(); 
+  
   LocalFisico? _selectedLocal;
-
+  bool _ativo = true;
   bool _isSaving = false;
+
+  bool get isEditing => widget.instrumentParaEditar != null;
 
   @override
   void initState() {
     super.initState();
-    if (widget.locaisDisponiveis.isNotEmpty) {
-      _selectedLocal = widget.locaisDisponiveis.first;
-    }
-  }
-
-  @override
-  void dispose() {
-    _patrimonioController.dispose();
-    _descricaoController.dispose();
-    _categoriaController.dispose();
-    _calibracaoController.dispose();
-    super.dispose();
-  }
-
-  // Tenta salvar o instrumento
-  Future<void> _saveInstrument() async {
-    if (!_formKey.currentState!.validate()) {
-      return;
-    }
-
-    if (_selectedLocal == null) {
-      setState(() { _isSaving = false; }); 
-      return;
-    }
-
-
-    setState(() {
-      _isSaving = true;
-    });
-
-    final String patrimonio = _patrimonioController.text.trim();
-    final String descricao = _descricaoController.text.trim();
-    final String? categoria = _categoriaController.text.trim().isEmpty ? null : _categoriaController.text.trim();
-    final String? proximaCalibracao = _calibracaoController.text.trim().isEmpty ? null : _calibracaoController.text.trim();
-
-    // CHAMA A FUNÇÃO DE SALVAR COM O ID DO LOCAL SELECIONADO
-    final bool success = await widget.onSave(
-      patrimonio,
-      descricao,
-      categoria,
-      _selectedLocal!.id, // <-- VALOR OBRIGATÓRIO (NOT NULL!)
-      proximaCalibracao,
-    );
-
-    if (success && mounted) {
-      Navigator.of(context).pop();
+    if (isEditing) {
+      final i = widget.instrumentParaEditar!;
+      _patrimonioController.text = i.patrimonio;
+      _descricaoController.text = i.descricao;
+      _categoriaController.text = i.categoria;
+      _calibracaoController.text = DateFormat('yyyy-MM-dd').format(i.proximaCalibracaoEm);
+      _ativo = i.ativo;
+      
+      try {
+        _selectedLocal = widget.locaisDisponiveis.firstWhere((l) => l.nome == i.localAtual);
+      } catch (_) {}
     } else {
-      setState(() {
-        _isSaving = false;
-      });
+      if (widget.locaisDisponiveis.isNotEmpty) _selectedLocal = widget.locaisDisponiveis.first;
     }
   }
 
-  // Mostra o seletor de data
+  Future<void> _submit() async {
+    if (!_formKey.currentState!.validate()) return;
+
+    // Na criação, local é obrigatório. Na edição, é opcional (mantém o atual se não mudar)
+    if (!isEditing && _selectedLocal == null) return;
+
+    setState(() => _isSaving = true);
+
+    // MONTA O MAPA DE DADOS
+    final data = {
+      "patrimonio": _patrimonioController.text.trim(),
+      "descricao": _descricaoController.text.trim(),
+      "categoria": _categoriaController.text.trim(),
+      "proxima_calibracao_em": _calibracaoController.text.trim(),
+      "ativo": _ativo,
+    };
+    
+    if (_selectedLocal != null) {
+       data["local_atual_id"] = _selectedLocal!.id;
+    }
+
+    // ENVIA O MAPA
+    final success = await widget.onSave(data);
+
+    if (success && mounted) Navigator.of(context).pop();
+    else setState(() => _isSaving = false);
+  }
+
   Future<void> _selectDate() async {
     DateTime? picked = await showDatePicker(
       context: context,
@@ -876,218 +613,105 @@ class _AddInstrumentDialogState extends State<_AddInstrumentDialog> {
       firstDate: DateTime(2000),
       lastDate: DateTime(2101),
     );
-
     if (picked != null) {
-      // Formata a data como YYYY-MM-DD (ISO String)
-      String formattedDate = DateFormat('yyyy-MM-dd').format(picked);
-      setState(() {
-        _calibracaoController.text = formattedDate;
-      });
+      setState(() => _calibracaoController.text = DateFormat('yyyy-MM-dd').format(picked));
     }
   }
 
   @override
   Widget build(BuildContext context) {
     const Color primaryColor = Color(0xFF080023);
-    const Color inputFillColor = Color.fromARGB(
-      255,
-      30,
-      24,
-      53,
-    ); // Um pouco mais claro que o fundo
+    const Color inputFillColor = Color.fromARGB(255, 30, 24, 53);
     const Color borderColor = Colors.white30;
     const Color hintColor = Colors.white60;
 
     return AlertDialog(
       backgroundColor: primaryColor,
-      title: const Text(
-        'Adicionar Novo Instrumento',
-        style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold),
-      ),
+      title: Text(isEditing ? 'Editar Instrumento' : 'Adicionar Novo', style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
       content: Form(
         key: _formKey,
         child: SingleChildScrollView(
           child: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
-              // Campo PATRIMÔNIO (Obrigatório)
-              TextFormField(
-                controller: _patrimonioController,
-                style: const TextStyle(color: Colors.white),
-                decoration: _buildInputDecoration(
-                  label: 'Patrimônio *',
-                  icon: Icons.qr_code,
-                ),
-                validator: (value) {
-                  if (value == null || value.trim().isEmpty) {
-                    return 'O patrimônio é obrigatório';
-                  }
-                  return null;
-                },
-              ),
+              _buildTextField(controller: _patrimonioController, label: 'Patrimônio *', icon: Icons.qr_code),
               const SizedBox(height: 16),
-
-              // Campo DESCRIÇÃO (Obrigatório)
-              TextFormField(
-                controller: _descricaoController,
-                style: const TextStyle(color: Colors.white),
-                decoration: _buildInputDecoration(
-                  label: 'Descrição *',
-                  icon: Icons.edit,
-                ),
-                validator: (value) {
-                  if (value == null || value.trim().isEmpty) {
-                    return 'A descrição é obrigatória';
-                  }
-                  return null;
-                },
-              ),
+              _buildTextField(controller: _descricaoController, label: 'Descrição *', icon: Icons.edit),
               const SizedBox(height: 16),
-
-              // Campo CATEGORIA
-              TextFormField(
-                controller: _categoriaController,
-                style: const TextStyle(color: Colors.white),
-                decoration: _buildInputDecoration(
-                  label: 'Categoria',
-                  icon: Icons.category,
-                ),
-              ),
+              _buildTextField(controller: _categoriaController, label: 'Categoria', icon: Icons.category),
               const SizedBox(height: 16),
-
-              // Campo LOCAL ID
+              
+              // Dropdown Local
               Container(
-                padding: const EdgeInsets.symmetric(vertical: 4),
-                decoration: BoxDecoration(
-                  color: inputFillColor,
-                  borderRadius: BorderRadius.circular(12),
-                  border: Border.all(color: borderColor),
-                ),
-                child: DropdownButtonFormField<LocalFisico>(
-                  value: _selectedLocal,
-                  dropdownColor: primaryColor,
-                  icon: const Icon(Icons.arrow_drop_down, color: hintColor),
-                  style: const TextStyle(color: Colors.white),
-                  decoration: _buildInputDecoration(
-                    label: 'Local Atual *', // Rótulo obrigatório
-                    icon: Icons.location_on,
-                  ).copyWith(
-                    prefixIcon: Icon(Icons.location_on, color: hintColor),
-                    border: InputBorder.none,
-                    enabledBorder: InputBorder.none,
-                    focusedBorder: InputBorder.none,
+                padding: const EdgeInsets.symmetric(horizontal: 12),
+                decoration: BoxDecoration(color: inputFillColor, borderRadius: BorderRadius.circular(12), border: Border.all(color: borderColor)),
+                child: DropdownButtonHideUnderline(
+                  child: DropdownButton<LocalFisico>(
+                    value: _selectedLocal,
+                    dropdownColor: primaryColor,
+                    icon: const Icon(Icons.arrow_drop_down, color: hintColor),
+                    style: const TextStyle(color: Colors.white),
+                    hint: const Text("Local Atual *", style: TextStyle(color: Colors.white60)),
+                    items: widget.locaisDisponiveis.map((l) => DropdownMenuItem(value: l, child: Text(l.nome, overflow: TextOverflow.ellipsis))).toList(),
+                    onChanged: (val) => setState(() => _selectedLocal = val),
                   ),
-                  items: widget.locaisDisponiveis.map((local) {
-                    return DropdownMenuItem(
-                      value: local,
-                      child: Text(local.nome, overflow: TextOverflow.ellipsis),
-                    );
-                  }).toList(),
-                  onChanged: (LocalFisico? newValue) {
-                    setState(() {
-                      _selectedLocal = newValue;
-                    });
-                  },
-                  validator: (value) {
-                    if (value == null) return 'O Local é obrigatório';
-                    return null;
-                  },
                 ),
               ),
               const SizedBox(height: 16),
 
-              // Campo PRÓXIMA CALIBRAÇÃO
+              // Data
               TextFormField(
                 controller: _calibracaoController,
                 style: const TextStyle(color: Colors.white),
-                decoration:
-                    _buildInputDecoration(
-                      label: 'Próxima Calibração (yyyy-mm-dd)',
-                      icon: Icons.calendar_today,
-                    ).copyWith(
-                      // Adiciona um botão de calendário no final
-                      suffixIcon: IconButton(
-                        icon: const Icon(
-                          Icons.calendar_month_outlined,
-                          color: hintColor,
-                        ),
-                        onPressed: _selectDate,
-                      ),
-                    ),
-                readOnly: true, // Impede digitação manual
-                onTap: _selectDate, // Abre o seletor ao tocar
+                decoration: InputDecoration(
+                  labelText: 'Próxima Calibração', labelStyle: const TextStyle(color: Colors.white60),
+                  filled: true, fillColor: inputFillColor,
+                  prefixIcon: const Icon(Icons.calendar_today, color: Colors.white60),
+                  border: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: const BorderSide(color: borderColor)),
+                  suffixIcon: IconButton(icon: const Icon(Icons.calendar_month, color: Colors.white60), onPressed: _selectDate),
+                ),
+                readOnly: true, onTap: _selectDate,
               ),
+
+              // SWITCH ATIVO (Só na edição)
+              if (isEditing) ...[
+                const SizedBox(height: 16),
+                Row(children: [
+                   const Text("Instrumento Ativo?", style: TextStyle(color: Colors.white)),
+                   Switch(value: _ativo, onChanged: (v) => setState(() => _ativo = v), activeColor: const Color(0xFF3B82F6)),
+                ]),
+              ],
             ],
           ),
         ),
       ),
       actions: [
-        // Botão CANCELAR
-        TextButton(
-          onPressed: () => Navigator.of(context).pop(),
-          child: const Text(
-            'Cancelar',
-            style: TextStyle(color: Colors.white70),
-          ),
-        ),
-        // Botão SALVAR
-        ElevatedButton(
-          onPressed: _isSaving
-              ? null
-              : _saveInstrument, // Desativa se estiver salvando
-          style: ElevatedButton.styleFrom(
-            backgroundColor: const Color(0xFF3B82F6),
-            foregroundColor: Colors.white,
-          ),
-          child: _isSaving
-              ? const SizedBox(
-                  width: 20,
-                  height: 20,
-                  child: CircularProgressIndicator(
-                    strokeWidth: 2,
-                    color: Colors.white,
-                  ),
-                )
-              : const Text('Salvar'),
-        ),
+        TextButton(onPressed: () => Navigator.of(context).pop(), child: const Text("Cancelar", style: TextStyle(color: Colors.white70))),
+        ElevatedButton(onPressed: _isSaving ? null : _submit, style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFF3B82F6)), child: _isSaving ? const CircularProgressIndicator(color: Colors.white) : const Text("Salvar", style: TextStyle(color: Colors.white))),
       ],
     );
   }
 
-  // Helper para estilizar os campos de texto do formulário
-  InputDecoration _buildInputDecoration({
-    required String label,
-    required IconData icon,
-  }) {
+  InputDecoration _buildInputDecoration({required String label, required IconData icon}) {
     const Color inputFillColor = Color.fromARGB(255, 30, 24, 53);
     const Color borderColor = Colors.white30;
     const Color hintColor = Colors.white60;
-
     return InputDecoration(
-      labelText: label,
-      labelStyle: const TextStyle(color: hintColor),
-      hintStyle: const TextStyle(color: hintColor),
+      labelText: label, labelStyle: const TextStyle(color: hintColor),
       prefixIcon: Icon(icon, color: hintColor, size: 20),
-      filled: true,
-      fillColor: inputFillColor,
-      // Borda padrão
-      border: OutlineInputBorder(
-        borderRadius: BorderRadius.circular(12),
-        borderSide: const BorderSide(color: borderColor),
-      ),
-      // Borda habilitada
-      enabledBorder: OutlineInputBorder(
-        borderRadius: BorderRadius.circular(12),
-        borderSide: const BorderSide(color: borderColor),
-      ),
-      // Borda em foco (quando o usuário clica)
-      focusedBorder: OutlineInputBorder(
-        borderRadius: BorderRadius.circular(12),
-        borderSide: const BorderSide(
-          color: Color(0xFF3B82F6),
-          width: 2,
-        ), // Borda azul de destaque
-      ),
+      filled: true, fillColor: inputFillColor,
+      border: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: const BorderSide(color: borderColor)),
+      enabledBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: const BorderSide(color: borderColor)),
+      focusedBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: const BorderSide(color: Color(0xFF3B82F6))),
+    );
+  }
+  
+  Widget _buildTextField({required TextEditingController controller, required String label, required IconData icon}) {
+    return TextFormField(
+      controller: controller,
+      style: const TextStyle(color: Colors.white),
+      validator: (v) => (label.contains('*') && (v == null || v.isEmpty)) ? 'Obrigatório' : null,
+      decoration: _buildInputDecoration(label: label, icon: icon),
     );
   }
 }
