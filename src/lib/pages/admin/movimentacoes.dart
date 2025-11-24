@@ -323,15 +323,16 @@ class _MovimentacoesRecentesPageState
             children: [
               _buildHeader(movimentacoes.length),
               const SizedBox(height: 8),
-              ListView.separated(
-                controller: _scrollController,
-                shrinkWrap: true,
-                physics: const NeverScrollableScrollPhysics(),
-                itemCount: movimentacoes.length,
-                separatorBuilder: (context, index) =>
-                    const SizedBox(height: 12),
-                itemBuilder: (context, index) =>
-                    _buildMovimentacaoCard(movimentacoes[index]),
+              SizedBox(
+                height: 500,
+                child: ListView.separated(
+                  controller: _scrollController,
+                  padding: EdgeInsets.zero,
+                  itemCount: movimentacoes.length,
+                  separatorBuilder: (context, index) => const SizedBox(height: 12),
+                  itemBuilder: (context, index) =>
+                      _buildMovimentacaoCard(movimentacoes[index]),
+                ),
               ),
               const SizedBox(height: 24),
             ],
