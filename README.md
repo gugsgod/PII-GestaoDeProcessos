@@ -18,6 +18,60 @@ Através de uma interface intuitiva e responsiva, o sistema permite:
 
 ---
 
+## 🖥️ Demonstração da Interface
+
+Abaixo estão algumas telas do sistema:
+
+- Tela de Login  
+![Tela de Login](C:\Users\pietr\Desktop\pii\PII-GestaoDeProcessos\imgs\tela_login.png)
+
+- Painel do Técnico  
+- Painel do Administrador  
+- Controle de Estoque  
+- Relatório de Movimentações  
+
+
+## ▶️ Como Rodar o Projeto
+
+### 📦 Pré-requisitos
+Antes de iniciar, certifique-se de ter instalado:
+
+- **Flutter** (versão recomendada: 3.x ou superior)
+- **Dart SDK**
+- **Dart Frog CLI**
+- **PostgreSQL**
+- **Git**
+
+---
+
+## 🖥️ 1. Clonar o Repositório
+
+```bash
+git clone https://github.com/gugsgod/PII-GestaoDeProcessos
+cd PII-GestaoDeProcessos
+
+🔌 2. Iniciar o Back-end (Dart Frog)
+cd backend
+dart_frog dev
+O servidor iniciará em:
+http://localhost:8080
+
+🖼️ 3. Iniciar a Aplicação Flutter
+No diretório principal do projeto:
+flutter pub get
+flutter run -d <device>
+📱 Dispositivos disponíveis para execução:
+windows
+chrome (web)
+android
+linux
+macos
+ios (apenas no macOS)
+
+💡 Exemplo rodando no Windows:
+flutter run -d windows
+
+
 ## 👨‍💻 Equipe de Desenvolvimento  
 
 | 👤 Nome | 🌐 GitHub |
@@ -34,7 +88,7 @@ Através de uma interface intuitiva e responsiva, o sistema permite:
 ## 🚀 Funcionalidades Principais  
 
 ### 📦 Gestão de Estoque  
-- Registro de **entrada, saída e movimentação** de materiais.  
+- Registro de **entrada, saída e movimentação** de materiais e instumentos.  
 - Controle de **quantidade, localização e responsável**.  
 - **Alerta automático** de estoque mínimo.  
 - Geração de **relatórios inteligentes**.  
@@ -48,7 +102,7 @@ Através de uma interface intuitiva e responsiva, o sistema permite:
 ### 🧩 Segurança e Acesso  
 - Sistema de login com **níveis de permissão**.  
 - **Logs de auditoria** de todas as ações.  
-- Perfis: **Administrador** e **Usuário Operacional**.  
+- Perfis: **Administrador** e **Técnico**.  
 
 ---
 
@@ -67,5 +121,6 @@ Através de uma interface intuitiva e responsiva, o sistema permite:
 - **Visual Studio Code** → IDE de desenvolvimento.  
 - **Git & GitHub** → Versionamento e colaboração.  
 - **Figma** → Prototipagem de interface.  
+- **Discord** → Comunicação entre os desenvolvedores.  
 
 ---
