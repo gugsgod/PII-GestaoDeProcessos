@@ -18,19 +18,6 @@ Através de uma interface intuitiva e responsiva, o sistema permite:
 
 ---
 
-## 🖥️ Demonstração da Interface
-
-Abaixo estão algumas telas do sistema:
-
-- Tela de Login  
-![Tela de Login](C:\Users\pietr\Desktop\pii\PII-GestaoDeProcessos\imgs\tela_login.png)
-
-- Painel do Técnico  
-- Painel do Administrador  
-- Controle de Estoque  
-- Relatório de Movimentações  
-
-
 ## ▶️ Como Rodar o Projeto
 
 ### 📦 Pré-requisitos
@@ -44,33 +31,43 @@ Antes de iniciar, certifique-se de ter instalado:
 
 ---
 
-## 🖥️ 1. Clonar o Repositório
+🖥️ 1. Clonar o Repositório
 
-```bash
 git clone https://github.com/gugsgod/PII-GestaoDeProcessos
 cd PII-GestaoDeProcessos
 
 🔌 2. Iniciar o Back-end (Dart Frog)
 cd backend
 dart_frog dev
+
+
 O servidor iniciará em:
 http://localhost:8080
 
 🖼️ 3. Iniciar a Aplicação Flutter
+
 No diretório principal do projeto:
+
 flutter pub get
 flutter run -d <device>
-📱 Dispositivos disponíveis para execução:
+
+📱 Dispositivos disponíveis para execução
+
 windows
+
 chrome (web)
+
 android
+
 linux
+
 macos
+
 ios (apenas no macOS)
 
-💡 Exemplo rodando no Windows:
+💡 Exemplo rodando no Windows
 flutter run -d windows
-
+---
 
 ## 👨‍💻 Equipe de Desenvolvimento  
 
